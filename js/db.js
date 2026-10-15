@@ -76,6 +76,20 @@ export function setAvatar(shopIds, uid, img) {
   return b.commit();
 }
 
+// ---------- 清空这家店 OP本 的全部发票、供应商、照片（店主在设置里用） ----------
+function readAll(q) { return new Promise((res, rej) => { const un = onSnapshot(q, s => { un(); res(s.docs.map(d => d.ref)); }, rej); }); }
+export async function clearAll(sid, lg) {
+  const refs = [].concat(await readAll(invCol(sid)), await readAll(supCol(sid)), await readAll(phCol(sid)));
+  for (let i = 0; i < refs.length; i += 400) {
+    const b = writeBatch(db);
+    refs.slice(i, i + 400).forEach(r => b.delete(r));
+    if (i + 400 >= refs.length) addLog(b, sid, lg);
+    await b.commit();
+  }
+  if (!refs.length) { const b = writeBatch(db); addLog(b, sid, lg); await b.commit(); }
+  return refs.length;
+}
+
 // ---------- 修改记录（只能新增，谁都改不了、删不了） ----------
 // lg = { me: {uid, name}, action, text, ref }
 const logCol = sid => collection(db, 'shops', sid, 'opLogs');

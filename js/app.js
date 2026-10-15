@@ -3,7 +3,7 @@ import * as db from './db.js';
 import { toImages, makeAvatar } from './photo.js';
 import { $, h, today, daysSince, cnDate, shortDate, monthKey, cnMonth, topDate, money, bigMoney, parseAmount, normName, keyName } from './util.js';
 
-const VERSION = '1.5';
+const VERSION = '1.5.1';
 
 // ---------- 图标（与到期提醒同风格：24 网格细线） ----------
 const IC = {
@@ -1041,7 +1041,12 @@ async function settings() {
     </section>
     <a class="btn block enter" href="${RIZHANG}" style="margin-bottom:10px;--i:3">${ic('ext', 18, 2)} 打开店铺日账</a>
     <button class="btn block danger enter" id="lo" style="--i:4">退出登录</button>
-    <p class="hint">OP本 v${VERSION}</p>`;
+    <p class="hint" id="ver">OP本 v${VERSION}</p>
+    ${S.shop && S.shop.owner === S.me.uid ? `<details class="adv"><summary>高级</summary>
+      <section class="card"><span class="micro">清空数据</span>
+        <p class="small" style="color:var(--text2);line-height:1.6;margin:6px 0 12px">删除这家店 OP本 里的全部发票、供应商、照片和付款记录，删了找不回来。成员、头像、店铺 logo 和修改记录保留；店铺日账不受影响。</p>
+        <button class="btn block danger" id="wipe">${ic('trash', 18, 2)} 清空全部数据</button>
+      </section></details>` : ''}`;
   drawProfile();
   drawMembers();
   watchLogBox();
@@ -1063,6 +1068,25 @@ async function settings() {
     b.classList.toggle('on', b.dataset.t === t);
     b.onclick = () => { setTheme(b.dataset.t); settings(); };
   });
+  const wipe = $('wipe');
+  if (wipe) wipe.onclick = async () => {
+    const n = S.unpaid.length;
+    if (!(await confirmSheet('清空全部数据？', `会删掉全部发票（包括 ${n} 张未付）、供应商、照片和付款记录，删了找不回来。`, '继续', true))) return;
+    const shopName = S.shop.name;
+    const typed = await new Promise(res => sheet(`<h3>最后确认</h3><p class="sub">请输入店名「<b>${h(shopName)}</b>」确认清空</p>
+      <div class="form"><input id="wn" autocomplete="off" placeholder="${h(shopName)}"></div>
+      <div class="btns" style="margin-top:12px"><button class="btn" data-a="no">取消</button><button class="btn danger" data-a="ok">清空</button></div>`, sh => {
+        sh.querySelector('[data-a=no]').onclick = () => { closeSheet(); res(null); };
+        sh.querySelector('[data-a=ok]').onclick = () => { const v = sh.querySelector('#wn').value; closeSheet(); res(v); };
+      }));
+    if (typed == null) return;
+    if (normName(typed).toLowerCase() !== normName(shopName).toLowerCase()) return toast('店名不对，没有清空', { err: true });
+    wipe.disabled = true; wipe.textContent = '清空中…';
+    try {
+      const cnt = await db.clearAll(S.shopId, LG('delete', `清空了全部数据（发票、供应商、照片）`, ''));
+      toast(`已清空（${cnt} 条）`); location.hash = '#/';
+    } catch (e) { fail(e); wipe.disabled = false; wipe.textContent = '清空全部数据'; }
+  };
   view().querySelector('#lo').onclick = async () => { if (await confirmSheet('退出登录？', '', '退出')) { try { localStorage.removeItem('opben.shop'); } catch (e) {} db.logout(); } };
   const sel = view().querySelector('#shopSel');
   if (sel) {

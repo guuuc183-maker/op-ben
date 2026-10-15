@@ -337,3 +337,8 @@ input,textarea,select{-webkit-touch-callout:default;-webkit-user-select:text;use
 .pay .pn{width:26px;height:26px;border-radius:50%;background:var(--soon-soft);color:var(--soon);display:grid;place-items:center;font-size:13px;font-weight:700;flex:none}
 .pay b{display:block;font-weight:600;font-size:15px}.pay small{display:block;font-size:12px;color:var(--text2)}
 .pay .num{font-size:20px}
+/* 设置最下面「高级」（藏起来的清空数据） */
+.adv{margin-top:28px}
+.adv summary{list-style:none;text-align:center;font-size:12px;color:var(--muted);cursor:pointer;padding:6px;-webkit-user-select:none;user-select:none}
+.adv summary::-webkit-details-marker{display:none}
+.adv[open] summary{margin-bottom:8px}
