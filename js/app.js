@@ -3,7 +3,7 @@ import * as db from './db.js';
 import { toImages, makeAvatar } from './photo.js';
 import { $, h, today, daysSince, cnDate, shortDate, monthKey, cnMonth, topDate, money, bigMoney, parseAmount, normName, keyName } from './util.js';
 
-const VERSION = '1.5.1';
+const VERSION = '1.5.2';
 
 // ---------- 图标（与到期提醒同风格：24 网格细线） ----------
 const IC = {
