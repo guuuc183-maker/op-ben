@@ -21,6 +21,56 @@ function draw(img, max, q) {
   x.drawImage(img, 0, 0, c.width, c.height);
   return c.toDataURL('image/jpeg', q);
 }
+const isPdf = f => f && (f.type === 'application/pdf' || /\.pdf$/i.test(f.name || ''));
+
+// PDF 发票（如 e-Factura）：每页转成一张图片，最多 maxPages 页。pdf.js 只在第一次选 PDF 时才加载
+let pdfLib = null;
+async function loadPdf() {
+  if (!pdfLib) {
+    pdfLib = await import('./pdfjs/pdf.min.mjs');
+    pdfLib.GlobalWorkerOptions.workerSrc = new URL('./pdfjs/pdf.worker.min.mjs', import.meta.url).href;
+  }
+  return pdfLib;
+}
+async function pdfToImages(file, maxPages) {
+  const lib = await loadPdf();
+  const task = lib.getDocument({
+    data: new Uint8Array(await file.arrayBuffer()),
+    standardFontDataUrl: new URL('./pdfjs/standard_fonts/', import.meta.url).href
+  });
+  const doc = await task.promise;
+  const out = [];
+  try {
+    for (let n = 1; n <= Math.min(doc.numPages, maxPages); n++) {
+      const page = await doc.getPage(n);
+      const v1 = page.getViewport({ scale: 1 });
+      const vp = page.getViewport({ scale: 2000 / Math.max(v1.width, v1.height) }); // 先画大一点，缩小后字更清楚
+      const c = document.createElement('canvas');
+      c.width = Math.round(vp.width); c.height = Math.round(vp.height);
+      const x = c.getContext('2d');
+      x.fillStyle = '#fff'; x.fillRect(0, 0, c.width, c.height);
+      await page.render({ canvasContext: x, canvas: c, viewport: vp }).promise;
+      // 压缩：从 1600 开始，太大就缩
+      let url = '';
+      for (const [m, q] of [[1600, .72], [1400, .65], [1200, .58], [1000, .5]]) {
+        url = draw(c, m, q); if (url.length < LIMIT * 0.3) break;
+      }
+      out.push(url);
+      page.cleanup();
+    }
+  } finally { task.destroy(); }
+  return { images: out, total: doc.numPages };
+}
+
+// 选的文件 → 图片数组（照片 1 张；PDF 每页 1 张），最多 room 张
+export async function toImages(file, room) {
+  if (isPdf(file)) {
+    const r = await pdfToImages(file, room);
+    return { images: r.images, skipped: Math.max(0, r.total - r.images.length) };
+  }
+  return { images: [await compress(file)], skipped: 0 };
+}
+
 // 发票要看清字：先试 1600px，太大就逐步降
 export async function compress(file) {
   if (file.type && !/^image\//.test(file.type)) throw new Error('请选照片文件');

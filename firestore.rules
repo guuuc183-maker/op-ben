@@ -130,6 +130,19 @@ service cloud.firestore {
           && request.resource.data.payPh is list && request.resource.data.payPh.size() <= 4
           && request.resource.data.updatedAt == request.time;
       }
+      // OP本 修改记录：只能新增，谁都改不了、删不了
+      match /opLogs/{logId} {
+        allow read: if canSeeAll(shopId);
+        allow update, delete: if false;
+        allow create: if canSeeAll(shopId)
+          && request.resource.data.keys().hasOnly(['action', 'text', 'ref', 'by', 'uid', 'at'])
+          && request.resource.data.uid == me()
+          && request.resource.data.at == request.time
+          && request.resource.data.action in ['add', 'edit', 'pay', 'unpay', 'delete', 'sup', 'role']
+          && request.resource.data.text is string && request.resource.data.text.size() <= 300
+          && request.resource.data.ref is string && request.resource.data.ref.size() <= 40
+          && request.resource.data.by is string && request.resource.data.by.size() <= 40;
+      }
       match /opPhotos/{photoId} {
         allow read, delete: if canSeeAll(shopId);
         allow create, update: if canSeeAll(shopId)

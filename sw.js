@@ -1,5 +1,5 @@
 // 离线缓存：有网时总是取最新版本，没网时用手机上的缓存
-const CACHE = 'opben-v1';
+const CACHE = 'opben-v2';
 const SHELL = [
   './', 'index.html', 'style.css', 'manifest.webmanifest',
   'js/app.js', 'js/db.js', 'js/util.js', 'js/photo.js', 'js/config.js', 'js/firebase.js',

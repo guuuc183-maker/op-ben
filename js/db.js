@@ -61,6 +61,30 @@ export function watchShop(shopId, cb, onErr) {
     cb(Object.assign({ id: s.id }, s.data()));
   }, onErr);
 }
+// ---------- 修改记录（只能新增，谁都改不了、删不了） ----------
+// lg = { me: {uid, name}, action, text, ref }
+const logCol = sid => collection(db, 'shops', sid, 'opLogs');
+function addLog(b, sid, lg) {
+  if (!lg) return;
+  b.set(doc(logCol(sid)), {
+    action: lg.action, text: String(lg.text || '').slice(0, 300), ref: lg.ref || '',
+    by: (lg.me && lg.me.name || '').slice(0, 40), uid: lg.me.uid, at: serverTimestamp()
+  });
+}
+export function watchLogs(sid, n, cb, onErr) {
+  return onSnapshot(query(logCol(sid), orderBy('at', 'desc'), limit(n)), s => cb(s.docs.map(d => {
+    const x = d.data();
+    return Object.assign({ id: d.id }, x, { at: x.at && x.at.toMillis ? x.at.toMillis() : Date.now() });
+  })), onErr);
+}
+
+// 店主改成员身份：manager = 家人（能看 OP本），staff = 店员
+export function setRole(shopId, uid, role, lg) {
+  const b = writeBatch(db);
+  b.update(doc(db, 'shops', shopId), { ['members.' + uid + '.role']: role });
+  addLog(b, shopId, lg);
+  return b.commit();
+}
 export const getShop = id => getDoc(doc(db, 'shops', id)).then(s => s.exists() ? Object.assign({ id: s.id }, s.data()) : null).catch(() => null);
 
 // ---------- 供应商 ----------
@@ -73,8 +97,12 @@ export function watchSuppliers(sid, cb, onErr) {
   }, onErr);
 }
 export function newSupplierId(sid) { return doc(supCol(sid)).id; }
-export const updateSupplier = (sid, id, data) => updateDoc(doc(supCol(sid), id), data);
-export const deleteSupplier = (sid, id) => deleteDoc(doc(supCol(sid), id));
+export function updateSupplier(sid, id, data, lg) {
+  const b = writeBatch(db); b.update(doc(supCol(sid), id), data); addLog(b, sid, lg); return b.commit();
+}
+export function deleteSupplier(sid, id, lg) {
+  const b = writeBatch(db); b.delete(doc(supCol(sid), id)); addLog(b, sid, lg); return b.commit();
+}
 
 // ---------- 发票 ----------
 const invCol = sid => collection(db, 'shops', sid, 'opInvoices');
@@ -117,10 +145,12 @@ export function watchInvoice(sid, id, cb, onErr) {
 
 // 保存发票（新建或修改）；supplier 是新供应商时一起建
 // photos: [{id, img}] 新增照片
-export function saveInvoice(sid, id, data, { newSupplier, photos = [], removePhotos = [] } = {}) {
+// supDays：老供应商的标红天数改了就一起更新
+export function saveInvoice(sid, id, data, { newSupplier, supDays, photos = [], removePhotos = [], log } = {}) {
   const b = writeBatch(db);
+  addLog(b, sid, log);
   if (newSupplier) b.set(doc(supCol(sid), newSupplier.id), { name: newSupplier.name, days: newSupplier.days || 30, createdAt: serverTimestamp(), usedAt: serverTimestamp() });
-  else b.update(doc(supCol(sid), data.supplierId), { usedAt: serverTimestamp() });
+  else b.update(doc(supCol(sid), data.supplierId), supDays ? { usedAt: serverTimestamp(), days: supDays } : { usedAt: serverTimestamp() });
   photos.forEach(p => b.set(doc(phCol(sid), p.id), { img: p.img, at: serverTimestamp() }));
   removePhotos.forEach(pid => b.delete(doc(phCol(sid), pid)));
   b.set(doc(invCol(sid), id), Object.assign({}, data, { updatedAt: serverTimestamp() }));
@@ -128,22 +158,25 @@ export function saveInvoice(sid, id, data, { newSupplier, photos = [], removePho
 }
 
 // 标记已付 / 撤销已付
-export function markPaid(sid, id, paidDate, paidBy, photos = []) {
+export function markPaid(sid, id, paidDate, paidBy, photos = [], lg) {
   const b = writeBatch(db);
+  addLog(b, sid, lg);
   photos.forEach(p => b.set(doc(phCol(sid), p.id), { img: p.img, at: serverTimestamp() }));
   const upd = { paid: true, paidDate, paidBy, updatedAt: serverTimestamp() };
   if (photos.length) upd.payPh = photos.map(p => p.id);
   b.update(doc(invCol(sid), id), upd);
   return b.commit();
 }
-export function unmarkPaid(sid, inv) {
+export function unmarkPaid(sid, inv, lg) {
   const b = writeBatch(db);
+  addLog(b, sid, lg);
   (inv.payPh || []).forEach(pid => b.delete(doc(phCol(sid), pid)));
   b.update(doc(invCol(sid), inv.id), { paid: false, paidDate: deleteField(), paidBy: deleteField(), payPh: [], updatedAt: serverTimestamp() });
   return b.commit();
 }
-export function deleteInvoice(sid, inv) {
+export function deleteInvoice(sid, inv, lg) {
   const b = writeBatch(db);
+  addLog(b, sid, lg);
   [...(inv.invPh || []), ...(inv.payPh || [])].forEach(pid => b.delete(doc(phCol(sid), pid)));
   b.delete(doc(invCol(sid), inv.id));
   return b.commit();

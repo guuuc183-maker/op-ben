@@ -1,9 +1,9 @@
 // OP本：进货发票付款记录
 import * as db from './db.js';
-import { compress } from './photo.js';
+import { toImages } from './photo.js';
 import { $, h, today, daysSince, cnDate, shortDate, monthKey, cnMonth, topDate, money, bigMoney, parseAmount, normName, keyName } from './util.js';
 
-const VERSION = '1.0';
+const VERSION = '1.1';
 
 // ---------- 图标（与到期提醒同风格：24 网格细线） ----------
 const IC = {
@@ -179,6 +179,7 @@ function openShop(sid) {
     if (!(shop.memberIds || []).includes(uid)) return noAccess();
     if (shop.owner !== uid && m.role === 'staff') return noAccess(true);
     S.me = { uid, name: m.name || (S.user.email || '').split('@')[0] || '我' };
+    drawMembers();
     if (unsubs.length === 1) startData(sid, onErr);
   }, onErr));
 }
@@ -206,6 +207,10 @@ function dataChanged() {
   if (cur && cur.live) cur.render();
   else updateSync();
 }
+
+// ---------- 修改记录的文字 ----------
+const LG = (action, text, ref) => ({ me: S.me, action, text, ref: ref || '' });
+const invDesc = (supN, amount, no) => `${supN} ${money(amount)} lei${no ? '（No. ' + no + '）' : ''}`;
 
 // ---------- 计算 ----------
 const supName = (id, fallback) => (S.sups[id] && S.sups[id].name) || fallback || '（未知供应商）';
@@ -348,7 +353,7 @@ function payFlow(inv) {
     </div>
     <button class="btn ok block" id="pok" style="margin-top:16px">${ic('check', 20, 2.2)} 已付</button>`, s => {
     const box = s.querySelector('#pph');
-    const draw = () => photoGrid(box, { list: photos.map(p => ({ img: p.img, id: p.id })), max: 2, onAdd: async f => { photos.push({ id: db.newPhotoId(S.shopId), img: await compress(f) }); draw(); }, onDel: id => { photos = photos.filter(p => p.id !== id); draw(); } });
+    const draw = () => photoGrid(box, { list: photos.map(p => ({ img: p.img, id: p.id })), max: 2, onAdd: imgs => { imgs.forEach(img => photos.push({ id: db.newPhotoId(S.shopId), img })); draw(); }, onDel: id => { photos = photos.filter(p => p.id !== id); draw(); } });
     draw();
     s.querySelector('#pok').onclick = () => {
       const pd = s.querySelector('#pd').value || today();
@@ -356,8 +361,8 @@ function payFlow(inv) {
       closeSheet();
       photos.forEach(p => db.cachePhoto(p.id, p.img));
       const row = document.querySelector(`[data-inv="${inv.id}"]`); if (row) row.classList.add('leaving');
-      db.markPaid(S.shopId, inv.id, pd, S.me.name, photos).catch(fail);
-      toast(`已付 ${money(inv.amount)} lei · ${name}`, { undo: () => db.unmarkPaid(S.shopId, Object.assign({}, inv, { payPh: photos.map(p => p.id) })).then(() => toast('已撤销')).catch(fail) });
+      db.markPaid(S.shopId, inv.id, pd, S.me.name, photos, LG('pay', `已付 ${invDesc(name, inv.amount, inv.no)}，付款日期 ${cnDate(pd, true)}${photos.length ? '，附付款截图' : ''}`, inv.id)).catch(fail);
+      toast(`已付 ${money(inv.amount)} lei · ${name}`, { undo: () => db.unmarkPaid(S.shopId, Object.assign({}, inv, { payPh: photos.map(p => p.id) }), LG('unpay', `撤销已付 ${invDesc(name, inv.amount, inv.no)}（点错了马上撤销）`, inv.id)).then(() => toast('已撤销')).catch(fail) });
     };
   });
 }
@@ -366,7 +371,7 @@ function payFlow(inv) {
 // list: [{id, img?}]（img 没有就从数据库读）
 function photoGrid(box, { list, max, onAdd, onDel, readonly }) {
   box.innerHTML = list.map(p => `<div class="ph" data-ph="${p.id}">${p.img ? `<img src="${p.img}" alt="">` : '<span class="spin">…</span>'}${readonly ? '' : `<button class="x" data-del="${p.id}" type="button">×</button>`}</div>`).join('')
-    + (!readonly && list.length < max ? `<label class="ph add">${ic('camera', 24)}<span>拍照/相册</span><input type="file" accept="image/*"></label>` : '');
+    + (!readonly && list.length < max ? `<label class="ph add">${ic('camera', 24)}<span>拍照/PDF</span><input type="file" accept="image/*,application/pdf,.pdf"></label>` : '');
   list.forEach(p => {
     const el = box.querySelector(`[data-ph="${p.id}"]`);
     el.onclick = e => { if (e.target.closest('[data-del]')) return; viewer(p.img || p.id); };
@@ -376,8 +381,16 @@ function photoGrid(box, { list, max, onAdd, onDel, readonly }) {
   const inp = box.querySelector('input[type=file]');
   if (inp) inp.onchange = async () => {
     const f = inp.files && inp.files[0]; if (!f) return;
-    const lab = inp.closest('.ph'); lab.innerHTML = '<span class="spin">压缩中…</span>';
-    try { await onAdd(f); } catch (e) { toast(e.message || '照片处理失败', { err: true }); photoGrid(box, { list, max, onAdd, onDel }); }
+    const lab = inp.closest('.ph'); lab.innerHTML = '<span class="spin">处理中…</span>';
+    try {
+      const r = await toImages(f, max - list.length);
+      if (r.skipped) toast(`PDF 只存了前 ${r.images.length} 页（最多 ${max} 张）`);
+      onAdd(r.images);
+    } catch (e) {
+      console.error(e);
+      toast(/pdf/i.test(f.type || f.name) ? '这个 PDF 打不开，换成截图试试' : (e.message || '照片处理失败'), { err: true });
+      photoGrid(box, { list, max, onAdd, onDel });
+    }
   };
 }
 
@@ -413,6 +426,8 @@ function formRender(inv, presetSup, pendingSup) {
     <label>供应商<input id="sup" placeholder="输入或选择供应商" maxlength="60" value="${h(st.supText)}"></label>
     <div class="chips" id="supChips"></div>
     <p class="hint-l" id="supHint"></p>
+    <label class="inline-n" style="margin:12px 0 0">开票超过 <input id="days" type="number" inputmode="numeric" min="1" max="999" value="30"> 天没付就标红</label>
+    <p class="hint-l" id="daysHint" style="margin-bottom:4px"></p>
     <label style="margin-top:12px">金额（lei）<input id="amt" class="amt-in" inputmode="decimal" placeholder="0,00" value="${inv ? h(money(inv.amount)) : ''}"></label>
     <p class="hint-l" id="amtHint" style="margin-top:-8px;margin-bottom:12px"></p>
     <div class="two">
@@ -420,7 +435,7 @@ function formRender(inv, presetSup, pendingSup) {
       <label>发票号<input id="no" placeholder="可不填" maxlength="40" value="${inv ? h(inv.no) : ''}" autocapitalize="characters"></label>
     </div>
     ${inv && inv.paid ? `<label>付款日期<input type="date" id="paidDate" value="${inv.paidDate || today()}" max="${today()}"></label>` : ''}
-    <span class="lbl">发票照片</span>
+    <span class="lbl">发票照片（拍照或选 PDF）</span>
     <div class="phs" id="phs"></div>
     <label style="margin-top:14px">备注<textarea id="note" maxlength="200" placeholder="可不填">${inv ? h(inv.note) : ''}</textarea></label>
   </form>
@@ -432,6 +447,21 @@ function formRender(inv, presetSup, pendingSup) {
   const f = view();
   const supIn = f.querySelector('#sup'), chips = f.querySelector('#supChips'), supHint = f.querySelector('#supHint');
   const amtIn = f.querySelector('#amt'), amtHint = f.querySelector('#amtHint');
+  const daysIn = f.querySelector('#days'), daysHint = f.querySelector('#daysHint');
+  let daysTouched = false, lastSupForDays = null;
+  daysIn.oninput = () => { daysTouched = true; showDays(); };
+  // 标红天数：选到之前的供应商就带出它的设置；新供应商默认 30
+  const showDays = () => {
+    const m = matchSup();
+    const key = m ? m.id : '';
+    if (key !== lastSupForDays) { lastSupForDays = key; if (!daysTouched || m) { daysIn.value = m ? (m.days || 30) : 30; daysTouched = false; } }
+    const d = parseInt(daysIn.value, 10);
+    daysHint.className = 'hint-l';
+    if (!(d >= 1 && d <= 999)) { daysHint.className = 'hint-l warn'; daysHint.textContent = '填 1 到 999 天'; }
+    else if (m && d !== (m.days || 30)) { daysHint.className = 'hint-l warn'; daysHint.textContent = `这家原来是 ${m.days || 30} 天，保存后改成 ${d} 天（这家所有发票都按新天数）`; }
+    else if (m) daysHint.textContent = `这家之前设的是 ${m.days || 30} 天`;
+    else daysHint.textContent = '新供应商，以后记这家会自动带出这个天数';
+  };
 
   const matchSup = () => {
     const k = keyName(supIn.value);
@@ -454,6 +484,7 @@ function formRender(inv, presetSup, pendingSup) {
     if (!supsNow().length && !k) supHint.textContent = '第一次输入的供应商会自动记住，下次直接点选';
     else if (k && !m) { supHint.className = 'hint-l new'; supHint.textContent = '新供应商「' + normName(supIn.value) + '」，保存后自动记住'; }
     else supHint.textContent = '';
+    showDays();
   };
   supIn.oninput = drawChips; drawChips();
 
@@ -469,13 +500,13 @@ function formRender(inv, presetSup, pendingSup) {
   const phBox = f.querySelector('#phs');
   const drawPh = () => photoGrid(phBox, {
     list: st.photos, max: 4,
-    onAdd: async file => { const p = { id: db.newPhotoId(S.shopId), img: await compress(file) }; st.photos.push(p); st.added.push(p); drawPh(); },
+    onAdd: imgs => { imgs.forEach(img => { const p = { id: db.newPhotoId(S.shopId), img }; st.photos.push(p); st.added.push(p); }); drawPh(); },
     onDel: id => { st.photos = st.photos.filter(p => p.id !== id); if (st.added.some(p => p.id === id)) st.added = st.added.filter(p => p.id !== id); else st.removed.push(id); drawPh(); }
   });
   drawPh();
 
   const save = async more => {
-    const name = normName(supIn.value);
+    let name = normName(supIn.value);
     if (!name) { supIn.classList.add('bad'); supIn.focus(); return toast('请填供应商'); }
     const amount = parseAmount(amtIn.value);
     if (isNaN(amount) || amount <= 0) { amtIn.classList.add('bad'); amtIn.focus(); return toast('请填正确的金额'); }
@@ -485,8 +516,12 @@ function formRender(inv, presetSup, pendingSup) {
     const no = f.querySelector('#no').value.trim();
     const note = f.querySelector('#note').value.trim();
     const m = matchSup();
+    if (m) name = m.name; // 用已存的写法（大小写）
     let newSupplier = null, supplierId = m ? m.id : null;
-    if (!supplierId) { supplierId = db.newSupplierId(S.shopId); newSupplier = { id: supplierId, name, days: 30 }; }
+    const days = parseInt(daysIn.value, 10);
+    if (!(days >= 1 && days <= 999)) { daysIn.classList.add('bad'); daysIn.focus(); return toast('标红天数填 1 到 999'); }
+    if (!supplierId) { supplierId = db.newSupplierId(S.shopId); newSupplier = { id: supplierId, name, days }; }
+    const supDays = !newSupplier && days !== ((m && m.days) || 30) ? days : null;
 
     // 同一家供应商同一个发票号 → 提醒可能重复
     if (no && (!inv || inv.no !== no || inv.supplierId !== supplierId)) {
@@ -509,9 +544,26 @@ function formRender(inv, presetSup, pendingSup) {
     if (!inv) data.createdAt = db.serverNow();
     const id = inv ? inv.id : db.newInvoiceId(S.shopId);
     st.added.forEach(p => db.cachePhoto(p.id, p.img));
-    db.saveInvoice(S.shopId, id, data, { newSupplier, photos: st.added, removePhotos: st.removed }).catch(fail);
+    let log;
+    if (!inv) {
+      log = LG('add', `记发票 ${invDesc(name, amount, no)}，开票 ${cnDate(date, true)}${newSupplier ? `；新供应商，超 ${days} 天标红` : ''}${supDays ? `；标红天数 ${(m && m.days) || 30} → ${days} 天` : ''}`, id);
+    } else {
+      const ch = [];
+      const oldSup = supName(inv.supplierId, inv.supplierName);
+      if (inv.supplierId !== supplierId) ch.push(`供应商 ${oldSup} → ${name}`);
+      if (Math.abs(inv.amount - amount) > 0.001) ch.push(`金额 ${money(inv.amount)} → ${money(amount)}`);
+      if (inv.date !== date) ch.push(`开票日期 ${cnDate(inv.date, true)} → ${cnDate(date, true)}`);
+      if (inv.no !== no) ch.push(`发票号 ${inv.no || '空'} → ${no || '空'}`);
+      if (inv.note !== note) ch.push(`备注 ${inv.note || '空'} → ${note || '空'}`);
+      if (paid && inv.paidDate !== paidDate) ch.push(`付款日期 ${cnDate(inv.paidDate, true)} → ${cnDate(paidDate, true)}`);
+      if (st.added.length) ch.push(`加了 ${st.added.length} 张照片`);
+      if (st.removed.length) ch.push(`删了 ${st.removed.length} 张照片`);
+      if (supDays) ch.push(`${name} 标红天数 ${(m && m.days) || 30} → ${days} 天`);
+      log = LG('edit', `改发票 ${invDesc(oldSup, inv.amount, inv.no)}：${ch.length ? ch.join('；') : '没有改动'}`, id);
+    }
+    db.saveInvoice(S.shopId, id, data, { newSupplier, supDays, photos: st.added, removePhotos: st.removed, log }).catch(fail);
     // 离线也能马上看到：不等服务器
-    if (more) { toast(`已记 ${money(amount)} lei · ${name}`); formRender(null, supplierId, newSupplier ? { id: supplierId, name, days: 30, used: Date.now() } : null); setTimeout(() => { const a = view().querySelector('#amt'); a && a.focus(); }, 50); }
+    if (more) { toast(`已记 ${money(amount)} lei · ${name}`); formRender(null, supplierId, newSupplier ? { id: supplierId, name, days, used: Date.now() } : null); setTimeout(() => { const a = view().querySelector('#amt'); a && a.focus(); }, 50); }
     else if (inv) { toast('已保存'); back('#/'); }
     else { toast(`已记 ${money(amount)} lei · ${name}`); location.hash = '#/'; }
   };
@@ -557,7 +609,7 @@ function detail(id) {
     const ub = view().querySelector('#unpay');
     if (ub) ub.onclick = async () => {
       if (!(await confirmSheet('撤销已付？', '这张发票会回到「未付」' + (inv.payPh.length ? '，付款截图会删除' : '') + '。', '撤销已付'))) return;
-      db.unmarkPaid(S.shopId, inv).then(() => toast('已撤销，回到未付')).catch(fail);
+      db.unmarkPaid(S.shopId, inv, LG('unpay', `撤销已付 ${invDesc(name, inv.amount, inv.no)}（原付款日期 ${cnDate(inv.paidDate, true)}）`, inv.id)).then(() => toast('已撤销，回到未付')).catch(fail);
     };
     view().querySelector('#more').onclick = () => sheet(`<h3>${h(name)}</h3><p class="sub">${money(inv.amount)} lei${inv.no ? ' · No. ' + h(inv.no) : ''}</p>
       <div class="sheet-list"><button data-a="edit">${ic('edit', 20)} 修改</button><button data-a="del" class="danger">${ic('trash', 20)} 删除这张发票</button></div>`, s => {
@@ -566,7 +618,7 @@ function detail(id) {
         closeSheet();
         if (!(await confirmSheet('删除这张发票？', '删除后找不回来，照片也一起删除。', '删除', true))) return;
         stopView();
-        db.deleteInvoice(S.shopId, inv).catch(fail);
+        db.deleteInvoice(S.shopId, inv, LG('delete', `删除发票 ${invDesc(name, inv.amount, inv.no)}，开票 ${cnDate(inv.date, true)}，${inv.paid ? '已付' : '未付'}`, inv.id)).catch(fail);
         toast('已删除'); back('#/');
       };
     });
@@ -681,14 +733,68 @@ function supMenu(s, count) {
       if (!(days >= 1 && days <= 999)) return toast('天数填 1 到 999');
       if (Object.values(S.sups).some(x => x.id !== s.id && keyName(x.name) === keyName(name))) return toast('已经有同名的供应商了');
       closeSheet();
-      db.updateSupplier(S.shopId, s.id, { name, days }).then(() => toast('已保存')).catch(fail);
+      const ch = [];
+      if (name !== s.name) ch.push(`改名 ${s.name} → ${name}`);
+      if (days !== s.days) ch.push(`标红天数 ${s.days} → ${days} 天`);
+      if (!ch.length) return;
+      db.updateSupplier(S.shopId, s.id, { name, days }, LG('sup', `供应商 ${s.name}：${ch.join('；')}`, s.id)).then(() => toast('已保存')).catch(fail);
     };
     el.querySelector('#sx').onclick = () => {
       if (count > 0) { closeSheet(); toast('这家还有 ' + count + ' 张发票，先删掉发票才能删供应商'); return; }
       closeSheet();
-      confirmSheet('删除「' + s.name + '」？', '', '删除', true).then(ok => { if (!ok) return; db.deleteSupplier(S.shopId, s.id).catch(fail); toast('已删除'); location.hash = '#/sup'; });
+      confirmSheet('删除「' + s.name + '」？', '', '删除', true).then(ok => { if (!ok) return; db.deleteSupplier(S.shopId, s.id, LG('sup', `删除供应商 ${s.name}`, s.id)).catch(fail); toast('已删除'); location.hash = '#/sup'; });
     };
   });
+}
+
+// ---------- 成员 ----------
+const ROLE = { owner: '店主', manager: '家人', staff: '店员' };
+function drawMembers() {
+  const box = $('members'); if (!box || !S.shop) return;
+  const shop = S.shop, isOwner = shop.owner === S.me.uid, mem = shop.members || {};
+  const ids = (shop.memberIds || []).slice().sort((a, b) => (a === shop.owner ? -1 : b === shop.owner ? 1 : ((mem[a] || {}).joinedAt || 0) - ((mem[b] || {}).joinedAt || 0)));
+  box.innerHTML = `<span class="micro">成员 · ${ids.length} 人</span>
+    <div class="mems">${ids.map(uid => {
+      const m = mem[uid] || {}, role = uid === shop.owner ? 'owner' : (m.role === 'staff' ? 'staff' : 'manager');
+      const me = uid === S.me.uid ? '<em class="me">我</em>' : '';
+      const ctl = isOwner && role !== 'owner'
+        ? `<div class="seg mini" data-uid="${uid}"><button data-r="manager" class="${role === 'manager' ? 'on' : ''}">家人</button><button data-r="staff" class="${role === 'staff' ? 'on' : ''}">店员</button></div>`
+        : `<span class="role ${role}">${ROLE[role]}</span>`;
+      return `<div class="mem"><span class="ic ${role === 'staff' ? '' : 'ok'}">${initial(m.name || '?')}</span><div class="grow"><b class="ell">${h(m.name || '（未命名）')}${me}</b><small>${role === 'staff' ? '看不到 OP本' : role === 'owner' ? '能管理成员' : '能看能改 OP本'}</small></div>${ctl}</div>`;
+    }).join('')}</div>
+    <p class="hint-l" style="margin-top:10px">${isOwner ? '「家人」能看能改进货付款，「店员」只能在店铺日账记当天营业额。邀请新成员在店铺日账里发邀请码。' : '只有店主能改成员身份。'}</p>`;
+  box.querySelectorAll('.seg.mini').forEach(seg => seg.querySelectorAll('button').forEach(b => b.onclick = async () => {
+    const uid = seg.dataset.uid, role = b.dataset.r;
+    if (b.classList.contains('on')) return;
+    const name = (mem[uid] || {}).name || '这个人';
+    if (role === 'staff' && !(await confirmSheet(`把「${name}」改成店员？`, '改成店员后，TA 就看不到 OP本 了（店铺日账只能记当天营业额）。', '改成店员'))) return;
+    seg.querySelectorAll('button').forEach(x => x.classList.toggle('on', x === b));
+    db.setRole(S.shopId, uid, role, LG('role', `把 ${name} 从${ROLE[role === 'staff' ? 'manager' : 'staff']}改成${ROLE[role]}`, uid)).then(() => toast(`「${name}」已改成${ROLE[role]}`)).catch(e => { fail(e); drawMembers(); });
+  }));
+}
+
+// ---------- 修改记录 ----------
+const LOG_IC = { add: 'add', edit: 'edit', pay: 'check', unpay: 'undo', delete: 'trash', sup: 'tabSup', role: 'gear' };
+const LOG_CLS = { pay: 'ok', delete: 'bad', unpay: 'mid' };
+let logN = 30;
+function fmtAt(ms) {
+  const d = new Date(ms), p = n => String(n).padStart(2, '0');
+  const t = p(d.getHours()) + ':' + p(d.getMinutes());
+  const ds = d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate());
+  return (ds === today() ? '今天' : cnDate(ds)) + ' ' + t;
+}
+function watchLogBox() {
+  stopView();
+  viewUnsub = db.watchLogs(S.shopId, logN, list => {
+    const box = $('logs'); if (!box) return;
+    if (!list.length) { box.innerHTML = '<div class="empty">还没有记录。之后每次记发票、改发票、点已付、删除、改供应商和成员，都会记在这里。</div>'; return; }
+    box.innerHTML = list.map(x => `<div class="lg">
+        <span class="ic sm ${LOG_CLS[x.action] || ''}">${ic(LOG_IC[x.action] || 'edit', 16, 2)}</span>
+        <div class="grow"><p>${h(x.text)}</p><small><b>${h(x.by || '?')}</b> · ${fmtAt(x.at)}</small></div>
+      </div>`).join('')
+      + (list.length >= logN ? '<button class="btn block" id="moreLog" style="margin-top:8px">查看更早的</button>' : '');
+    const mb = $('moreLog'); if (mb) mb.onclick = () => { logN += 50; watchLogBox(); };
+  }, e => { const box = $('logs'); if (box) box.innerHTML = '<div class="empty">修改记录读不到：请按说明更新数据库规则</div>'; console.error(e); });
 }
 
 // ---------- 设置 ----------
@@ -702,6 +808,8 @@ async function settings() {
       <div><span>账号</span><b class="small">${h(S.user.email || '')}</b></div>
       ${S.shopIds.length > 1 ? '<div><span>切换店铺</span><select class="inp" id="shopSel" style="width:auto;margin:0"></select></div>' : ''}
     </section>
+    <section class="card enter" style="--i:1" id="members"></section>
+    <section class="card enter" style="--i:1"><span class="micro">修改记录</span><div id="logs" class="logs"><div class="empty">加载中…</div></div></section>
     <section class="card enter" style="--i:1">
       <span class="micro">外观</span>
       <div class="seg" id="theme" style="margin-top:8px"><button data-t="">跟随系统</button><button data-t="light">浅色</button><button data-t="dark">深色</button></div>
@@ -713,6 +821,8 @@ async function settings() {
     <a class="btn block enter" href="${RIZHANG}" style="margin-bottom:10px;--i:3">${ic('ext', 18, 2)} 打开店铺日账</a>
     <button class="btn block danger enter" id="lo" style="--i:4">退出登录</button>
     <p class="hint">OP本 v${VERSION}</p>`;
+  drawMembers();
+  watchLogBox();
   view().querySelectorAll('#theme button').forEach(b => {
     b.classList.toggle('on', b.dataset.t === t);
     b.onclick = () => { setTheme(b.dataset.t); settings(); };

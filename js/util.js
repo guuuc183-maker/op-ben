@@ -48,8 +48,9 @@ export function parseAmount(raw) {
     const parts = s.split(',');
     s = parts.length > 2 ? parts.join('') : parts.join('.');
   } else if (ld >= 0) {
+    // 只有点：多个点，或点后面正好 3 位（1.234）→ 千分位（罗马尼亚写法）；否则当小数点
     const parts = s.split('.');
-    if (parts.length > 2) s = parts.join('');
+    if (parts.length > 2 || parts[1].length === 3) s = parts.join('');
   }
   if (!/^\d+(\.\d+)?$/.test(s)) return NaN;
   return Math.round(parseFloat(s) * 100) / 100;
