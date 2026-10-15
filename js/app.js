@@ -3,7 +3,7 @@ import * as db from './db.js';
 import { toImages, makeAvatar } from './photo.js';
 import { $, h, today, daysSince, cnDate, shortDate, monthKey, cnMonth, topDate, money, bigMoney, parseAmount, normName, keyName } from './util.js';
 
-const VERSION = '1.5.2';
+const VERSION = '1.5.3';
 
 // ---------- 图标（与到期提醒同风格：24 网格细线） ----------
 const IC = {
@@ -891,7 +891,7 @@ function supDetail(sid) {
           <div class="kpi"><span class="num">${s.days}</span><small>天后标红</small></div>
         </div>
       </section>
-      <a class="btn primary block enter" href="#/new?s=${sid}" style="margin-bottom:12px;--i:1">${ic('add', 18, 2.2)} 给这家记发票</a>
+      <a class="btn primary block enter" href="#/new?s=${sid}" style="margin-bottom:12px;--i:1">${ic('add', 18, 2.2)} 新增</a>
       ${un.length ? secHead('un', '未付', `${un.length} 笔 · ${money(oweOf(un))} lei`) + `<section class="card list">${un.map(i => invRow(i)).join('')}</section>` : ''}
       ${secHead('ok', '已付', all === null ? '加载中…' : `${evs.length} 笔 · 今年 ${money(paidYear)} lei`)}
       ${evYr.length ? splitLine(splitSum(evYr, e => e.amount)) : ''}
