@@ -290,3 +290,9 @@ input,select,button,textarea{font:inherit;color:inherit}
 .inv.paid .amt small{font-weight:700}
 .sdot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:8px;vertical-align:1px}
 .sdot.un{background:var(--expired)}.sdot.ok{background:var(--safe)}
+
+/* 长按不弹出链接预览 / 拷贝菜单（像原生 App）；输入框照常能选字，看大图时照常能长按保存 */
+html{-webkit-touch-callout:none}
+a,button,img,.inv,.row,.lrow,.mem,.lg,.tabbar,.grp-h,.card,.chips,.seg{-webkit-touch-callout:none;-webkit-user-select:none;user-select:none}
+input,textarea,select{-webkit-touch-callout:default;-webkit-user-select:text;user-select:text}
+.viewer img{-webkit-touch-callout:default}
