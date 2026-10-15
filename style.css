@@ -234,3 +234,59 @@ input,select,button,textarea{font:inherit;color:inherit}
 .lg small{display:block;margin-top:3px;font-size:12px;color:var(--text2)}.lg small b{color:var(--text);font-weight:600}
 .ic.sm{width:32px;height:32px;border-radius:10px}
 .logs .empty{padding:14px 0;color:var(--muted);font-size:14px}
+
+/* ===== v1.2：和店铺日账一样的顶栏、头像、店铺头部 ===== */
+.topnav{position:sticky;top:0;z-index:6;display:grid;grid-template-columns:40px 1fr 40px;align-items:center;gap:8px;
+ margin:0 -16px;padding:calc(10px + var(--safe-t)) 16px 8px;background:var(--bg)}
+.view:has(.topnav){padding-top:0}
+.avatar{width:36px;height:36px;border-radius:50%;padding:0;border:1px solid var(--line2);background:var(--card-2);color:var(--text);
+ font-family:var(--num);font-weight:700;font-size:17px;display:flex;align-items:center;justify-content:center;overflow:hidden;transition:transform .2s var(--ease)}
+.avatar:active{transform:scale(.92)}
+.avatar img,.mav img{width:100%;height:100%;object-fit:cover;display:block;border-radius:50%;animation:fade .3s both}
+.shopchip{justify-self:center;display:flex;align-items:center;gap:8px;max-width:100%;color:var(--text);padding:6px 8px;
+ font-family:var(--num);font-size:19px;font-weight:700;letter-spacing:2px;text-transform:uppercase}
+.shopchip span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.shopchip .slogo{width:24px;height:24px;border-radius:50%;object-fit:cover;flex:none;border:1px solid var(--line2)}
+.syncdot{justify-self:end;width:8px;height:8px;border-radius:50%;background:var(--muted);margin-right:14px;transition:background .3s}
+.syncdot.ok{background:var(--safe)}.syncdot.warn{background:var(--soon)}
+.pagehead{padding:6px 4px 12px}.pagehead h1{margin:2px 0 0;font-size:26px;font-weight:800;letter-spacing:-.3px}
+.mav{width:36px;height:36px;border-radius:50%;background:var(--card-2);border:1px solid var(--line2);display:flex;align-items:center;justify-content:center;
+ font-family:var(--num);font-size:17px;font-weight:700;color:var(--text);flex-shrink:0;overflow:hidden}
+.mav.me{width:40px;height:40px}.mav.ghost{color:var(--text2);border-color:transparent}
+.mem .mav{width:40px;height:40px}
+
+/* 设置页头部 */
+.profile{text-align:center;padding:10px 20px 22px}
+.bigavatar{position:relative;width:84px;height:84px;border-radius:50%;margin:0 auto;display:flex;align-items:center;justify-content:center;
+ background:var(--card-2);color:var(--text);font-family:var(--num);font-size:38px;font-weight:700;box-shadow:0 0 0 3px var(--bg),0 0 0 5px var(--accent)}
+.bigavatar .logo-in{width:100%;height:100%;border-radius:50%;overflow:hidden;display:flex;align-items:center;justify-content:center}
+.bigavatar .logo-in img{width:100%;height:100%;object-fit:cover;display:block;animation:fade .3s both}
+.bigavatar.can{cursor:pointer}
+.bigavatar .cam{position:absolute;right:-2px;bottom:-2px;width:28px;height:28px;border-radius:50%;background:var(--cta-bg);color:var(--cta-fg);
+ border:3px solid var(--bg);display:flex;align-items:center;justify-content:center}
+.bigavatar.busy,#row-avatar.busy{opacity:.5;pointer-events:none}
+.pname{font-size:24px;font-weight:700;margin-top:16px;letter-spacing:.5px}
+.prole{font-size:13px;color:var(--text2);margin-top:4px}
+.stats{display:flex;justify-content:center;gap:10px;margin-top:20px}
+.stats>div{flex:1;max-width:124px;background:var(--card);border:1px solid var(--line);border-radius:14px;padding:12px 8px 10px}
+.stats b{display:block;font-family:var(--num);font-size:22px;font-weight:700}
+.stats span{font-size:12px;color:var(--text2);letter-spacing:.3px}
+.lrow{display:flex;align-items:center;gap:12px;min-height:58px;padding:8px 0;color:var(--text);cursor:pointer}
+.lrow+.lrow{border-top:1px solid var(--line)}.lrow.static{cursor:default}
+.lrow b{display:block;font-weight:600;font-size:15px}.lrow small{display:block;font-size:12.5px;color:var(--text2)}
+
+/* 修改记录：头像 + 动作小标 */
+.lgface{position:relative;flex:none}
+.lgface .mav{width:34px;height:34px;font-size:15px}
+.lgface .badge{position:absolute;right:-4px;bottom:-3px;width:18px;height:18px;border-radius:50%;display:flex;align-items:center;justify-content:center;
+ background:var(--card-2);color:var(--text2);border:2px solid var(--card)}
+.lgface .badge.ok{background:var(--safe);color:#fff}.lgface .badge.bad{background:var(--expired);color:#fff}.lgface .badge.mid{background:var(--soon);color:#fff}
+
+/* 未付 / 已付 一眼区分 */
+.pay-btn{display:inline-flex;align-items:center;gap:6px;background:var(--card);color:var(--text);border:1.5px solid var(--line2);font-weight:600}
+.pay-btn .circ{width:14px;height:14px;border-radius:50%;border:2px solid var(--muted);flex:none}
+.inv.paid .okmark{width:28px;height:28px;border-radius:50%;background:var(--safe-soft);color:var(--safe);display:grid;place-items:center;flex:none}
+.inv.paid .amt .num{color:var(--text2)}
+.inv.paid .amt small{font-weight:700}
+.sdot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:8px;vertical-align:1px}
+.sdot.un{background:var(--expired)}.sdot.ok{background:var(--safe)}

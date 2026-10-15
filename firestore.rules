@@ -93,10 +93,10 @@ service cloud.firestore {
           && request.resource.data.note is string && request.resource.data.note.size() <= 100
           && request.resource.data.by is string && request.resource.data.by.size() <= 40;
       }
-      // 头像（店铺日账）：成员都能看，只能改自己的
+      // 头像：成员都能看，只能改自己的；店铺 logo（_shop）只有店主能改
       match /avatars/{uid} {
         allow read: if isMember(shopId);
-        allow write: if isMember(shopId) && me() == uid
+        allow write: if isMember(shopId) && (me() == uid || (uid == '_shop' && shopData(shopId).owner == me()))
           && (request.method == 'delete' || (request.resource.data.keys().hasOnly(['img', 'at'])
             && request.resource.data.img is string && request.resource.data.img.size() < 200000));
       }

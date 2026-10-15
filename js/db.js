@@ -61,6 +61,18 @@ export function watchShop(shopId, cb, onErr) {
     cb(Object.assign({ id: s.id }, s.data()));
   }, onErr);
 }
+// ---------- 头像 / 店铺 logo（和店铺日账共用：shops/{id}/avatars/{uid}，店铺 logo 存在 _shop） ----------
+export function watchAvatars(shopId, cb) {
+  return onSnapshot(collection(db, 'shops', shopId, 'avatars'), s => {
+    const m = {}; s.forEach(d => { if (d.data().img) m[d.id] = d.data().img; }); cb(m);
+  }, () => cb({}));
+}
+export function setAvatar(shopIds, uid, img) {
+  const b = writeBatch(db);
+  shopIds.forEach(id => b.set(doc(db, 'shops', id, 'avatars', uid), { img, at: serverTimestamp() }));
+  return b.commit();
+}
+
 // ---------- 修改记录（只能新增，谁都改不了、删不了） ----------
 // lg = { me: {uid, name}, action, text, ref }
 const logCol = sid => collection(db, 'shops', sid, 'opLogs');

@@ -82,3 +82,17 @@ export async function compress(file) {
   if (out.length >= LIMIT) throw new Error('照片太大了，换一张试试');
   return out;
 }
+
+// 头像 / logo：裁成正方形 192px，小 JPEG（和店铺日账一样）
+export async function makeAvatar(file) {
+  if (file.type && !/^image\//.test(file.type)) throw new Error('请选照片');
+  const img = await decode(file);
+  const w = img.width || img.naturalWidth, hh = img.height || img.naturalHeight, sq = Math.min(w, hh), N = 192;
+  const c = document.createElement('canvas'); c.width = c.height = N;
+  const x = c.getContext('2d');
+  x.fillStyle = '#fff'; x.fillRect(0, 0, N, N);
+  x.drawImage(img, (w - sq) / 2, (hh - sq) / 2, sq, sq, 0, 0, N, N);
+  img.close && img.close();
+  for (const q of [0.82, 0.7, 0.55, 0.4]) { const out = c.toDataURL('image/jpeg', q); if (out.length < 38000) return out; }
+  throw new Error('图片太大');
+}
