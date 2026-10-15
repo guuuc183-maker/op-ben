@@ -187,7 +187,7 @@ export function unmarkPaid(sid, inv, lg) {
   const b = writeBatch(db);
   addLog(b, sid, lg);
   (inv.payPh || []).forEach(pid => b.delete(doc(phCol(sid), pid)));
-  b.update(doc(invCol(sid), inv.id), { paid: false, paidDate: deleteField(), paidBy: deleteField(), payMethod: deleteField(), payPh: [], updatedAt: serverTimestamp() });
+  b.update(doc(invCol(sid), inv.id), { paid: false, paidDate: deleteField(), paidBy: deleteField(), payPh: [], updatedAt: serverTimestamp() });
   return b.commit();
 }
 export function deleteInvoice(sid, inv, lg) {

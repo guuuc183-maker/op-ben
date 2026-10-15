@@ -312,3 +312,18 @@ input,textarea,select{-webkit-touch-callout:default;-webkit-user-select:text;use
 .fold .chev{transition:transform .2s var(--ease)}.fold.open .chev{transform:rotate(90deg)}
 .fold+.logs{margin-top:8px}
 .kpi.sm .num{font-size:20px;line-height:28px}
+
+/* v1.4 欠 OP / 欠现金 */
+.kpis.two .kpi .num{font-size:24px;line-height:1.1}
+.kpi .num.op{color:#1E6FE0}.kpi .num.cash{color:var(--soon)}
+:root[data-theme=dark] .kpi .num.op{color:#3D9BFF}
+@media (prefers-color-scheme:dark){:root:not([data-theme=light]) .kpi .num.op{color:#3D9BFF}}
+.kpi small .mtag{margin-right:2px}
+.hero-foot{margin:12px 0 0;font-size:13px;color:var(--text2);font-weight:600}
+.gsplit{display:flex;gap:14px;padding:8px 0 2px;font-size:13px;font-weight:600;color:var(--text2)}
+.gsplit:empty{display:none}
+.gsplit span{display:inline-flex;align-items:center;gap:6px}
+.hero .split{padding:0 0 12px}
+.inv .amt small .mtag{margin-right:0}
+.gsplit.tight{padding:3px 0 0;font-size:12px}
+.mtag{white-space:nowrap}.gsplit.hero-sp{padding:0 0 12px}
