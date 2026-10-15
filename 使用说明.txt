@@ -1,0 +1,56 @@
+OP本 —— 上线步骤（手机就能做，约 10 分钟，全程免费）
+=====================================================
+
+OP本 和「店铺日账」共用同一个 Firebase、同一个账号、同一家店。
+家人不用重新注册，打开网址就是登录状态。
+
+
+第 1 步：放到 GitHub
+--------------------
+1. 打开 github.com（用 guuuc183-maker 账号）→ 右上角「+」→「New repository」
+   · Repository name 填：op-ben
+   · 选 Public →「Create repository」
+2. 点蓝色小字「uploading an existing file」→「choose your files」
+   → 进入解压出的 op-ben 文件夹，把里面所有文件和文件夹都传上去
+     （index.html、style.css、sw.js、manifest.webmanifest、firestore.rules、
+       以及 js、fonts、icons 三个文件夹）
+   手机上传不了文件夹的话：先传外面的文件，再点「Add file → Upload files」，
+   进 js 文件夹全选上传，fonts、icons 同样（上传时路径要保持 js/xxx.js 这样）
+   → 底部「Commit changes」
+3. 仓库「Settings」→「Pages」→ Source 选「Deploy from a branch」，
+   Branch 选「main」和「/ (root)」→ Save
+   1～2 分钟后网址是：https://guuuc183-maker.github.io/op-ben/
+
+
+第 2 步：更新数据库规则（必须做，否则打开会提示没权限）
+------------------------------------------------------
+1. 打开 console.firebase.google.com → 项目 dianpu-rizhang
+   →「Firestore Database」→「规则」标签
+2. 另开一个标签页，打开 GitHub 仓库 op-ben 里的 firestore.rules → 点「复制」图标
+3. 回到 Firebase 规则页，把框里原有内容全部删掉，粘贴 →「发布」
+
+   这份规则 = 店铺日账原来的规则 + OP本 的部分，店铺日账照常能用
+   （还顺带补上了「休息日」和「头像」需要的权限）。
+
+
+第 3 步：开始用
+--------------
+1. 手机打开 https://guuuc183-maker.github.io/op-ben/
+2. 加到主屏幕：iPhone Safari「分享」→「添加到主屏幕」；安卓 Chrome 菜单 →「添加到主屏幕」
+3. 家人要用：店主在 店铺日账 →「店铺」里，把家人的身份设成「家人」（「店员」看不到 OP本）
+
+
+怎么用
+------
+· 收到发票：点底部「+」→ 选/输入供应商 → 金额 → 开票日期 → 发票号 → 拍照 → 保存
+· 打完 OP：首页在那张发票上点「已付」→ 确认（可以加付款截图）；点错了马上点「撤销」
+· 首页按供应商分组：每家几笔、多少钱、每张欠了几天；超过天数标红
+· 每家供应商的标红天数：「供应商」→ 点进去 → 右上角 ⋯（默认 30 天）
+· 已付的都保留：「已付」里按月份看、可搜供应商 / 发票号 / 金额
+· 没网也能记，有网自动同步
+
+
+费用
+----
+照片压缩后（每张约 200～300KB）直接存在数据库里，不用 Firebase Storage，不用绑卡。
+Firebase 免费版有 1GB 空间，够存几千张照片。

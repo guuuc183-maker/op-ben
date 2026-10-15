@@ -1,0 +1,15 @@
+{
+  "name": "OP本",
+  "short_name": "OP本",
+  "description": "进货发票付款记录，哪些 OP 已打、哪些没打，一目了然",
+  "lang": "zh-CN",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#07090B",
+  "theme_color": "#07090B",
+  "icons": [
+    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any maskable" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
+  ]
+}
