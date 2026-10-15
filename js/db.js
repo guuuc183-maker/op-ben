@@ -130,7 +130,7 @@ function toInv(d) {
   return {
     id: d.id, supplierId: x.supplierId, supplierName: x.supplierName || '', no: x.no || '', amount: x.amount || 0,
     date: x.date, note: x.note || '', paid: !!x.paid, paidDate: x.paidDate || null, paidBy: x.paidBy || '',
-    by: x.by || '', invPh: x.invPh || [], payPh: x.payPh || [],
+    by: x.by || '', invPh: x.invPh || [], payPh: x.payPh || [], method: x.payMethod === 'cash' ? 'cash' : 'op',
     pending: d.metadata.hasPendingWrites
   };
 }
@@ -173,11 +173,12 @@ export function saveInvoice(sid, id, data, { newSupplier, supDays, photos = [], 
 }
 
 // 标记已付 / 撤销已付
-export function markPaid(sid, id, paidDate, paidBy, photos = [], lg) {
+// method: 'cash' 现金 / 'op' 银行转账
+export function markPaid(sid, id, paidDate, paidBy, photos = [], lg, method = 'op') {
   const b = writeBatch(db);
   addLog(b, sid, lg);
   photos.forEach(p => b.set(doc(phCol(sid), p.id), { img: p.img, at: serverTimestamp() }));
-  const upd = { paid: true, paidDate, paidBy, updatedAt: serverTimestamp() };
+  const upd = { paid: true, paidDate, paidBy, payMethod: method === 'cash' ? 'cash' : 'op', updatedAt: serverTimestamp() };
   if (photos.length) upd.payPh = photos.map(p => p.id);
   b.update(doc(invCol(sid), id), upd);
   return b.commit();
@@ -186,7 +187,7 @@ export function unmarkPaid(sid, inv, lg) {
   const b = writeBatch(db);
   addLog(b, sid, lg);
   (inv.payPh || []).forEach(pid => b.delete(doc(phCol(sid), pid)));
-  b.update(doc(invCol(sid), inv.id), { paid: false, paidDate: deleteField(), paidBy: deleteField(), payPh: [], updatedAt: serverTimestamp() });
+  b.update(doc(invCol(sid), inv.id), { paid: false, paidDate: deleteField(), paidBy: deleteField(), payMethod: deleteField(), payPh: [], updatedAt: serverTimestamp() });
   return b.commit();
 }
 export function deleteInvoice(sid, inv, lg) {

@@ -3,7 +3,7 @@ import * as db from './db.js';
 import { toImages, makeAvatar } from './photo.js';
 import { $, h, today, daysSince, cnDate, shortDate, monthKey, cnMonth, topDate, money, bigMoney, parseAmount, normName, keyName } from './util.js';
 
-const VERSION = '1.2.2';
+const VERSION = '1.3';
 
 // ---------- 图标（与到期提醒同风格：24 网格细线） ----------
 const IC = {
@@ -335,7 +335,21 @@ function paidRow(i, showSup) {
   return `<div class="inv paid" data-inv="${i.id}">
     <span class="okmark">${ic('check', 16, 2.6)}</span>
     <div class="meta">${showSup ? `<b class="ell">${h(supName(i.supplierId, i.supplierName))}</b>` : ''}<small>${sub}${i.payPh.length || i.invPh.length ? `<span class="ph-dot">${ic('photo', 13, 1.8)}</span>` : ''}</small></div>
-    <div class="amt"><span class="num">${money(i.amount)}</span><small class="safe">✓ 已付 ${shortDate(i.paidDate)}</small></div></div>`;
+    <div class="amt"><span class="num">${money(i.amount)}</span><small class="safe">${methodTag(i.method)} ✓ ${shortDate(i.paidDate)}</small></div></div>`;
+}
+const METHOD = { cash: '现金', op: 'OP' };
+const methodTag = m => `<span class="mtag ${m}">${METHOD[m] || 'OP'}</span>`;
+// 现金 / OP 分开合计
+function splitSum(list) {
+  const c = sumOf(list.filter(i => i.method === 'cash')), o = sumOf(list.filter(i => i.method !== 'cash'));
+  return { cash: c, op: o, all: c + o };
+}
+const splitLine = (sp) => `<div class="split"><span>${methodTag('cash')} ${money(sp.cash)}</span><span>${methodTag('op')} ${money(sp.op)}</span></div>`;
+// 现金 / OP 选择（seg）
+const methodSeg = (cur, id) => `<div class="seg" id="${id}"><button type="button" data-m="op" class="${cur === 'op' ? 'on' : ''}">OP 转账</button><button type="button" data-m="cash" class="${cur === 'cash' ? 'on' : ''}">现金</button></div>`;
+function bindSeg(root, id, onChange) {
+  const box = root.querySelector('#' + id); if (!box) return;
+  box.querySelectorAll('button').forEach(b => b.onclick = () => { box.querySelectorAll('button').forEach(x => x.classList.toggle('on', x === b)); onChange(b.dataset.m); });
 }
 const secHead = (kind, title, right) => `<div class="month"><b><i class="sdot ${kind}"></i>${title}</b><span>${right}</span></div>`;
 
@@ -361,7 +375,7 @@ function home() {
     view().innerHTML = html; return;
   }
   html += `<section class="card hero enter">
-    <span class="micro">还没打 OP 的总额</span>
+    <span class="micro">未付总额</span>
     <div class="total">${bigMoney(total)}<em>lei</em></div>
     <div class="kpis">
       <div class="kpi"><span class="num">${S.unpaid.length}</span><small>笔未付</small></div>
@@ -385,16 +399,18 @@ function home() {
 
 // ---------- 标记已付 ----------
 function payFlow(inv) {
-  let photos = [];
+  let photos = [], method = 'op';
   const name = supName(inv.supplierId, inv.supplierName);
-  sheet(`<h3>确认已打 OP</h3>
+  sheet(`<h3>确认已付</h3>
     <p class="sub">${h(name)} · <b class="num" style="font-size:17px">${money(inv.amount)}</b> lei${inv.no ? ' · No. ' + h(inv.no) : ''}</p>
     <div class="form">
-      <label>付款日期<input type="date" id="pd" value="${today()}" max="${today()}"></label>
-      <span class="lbl">付款截图（可不加）</span>
+      <span class="lbl">付款方式</span>${methodSeg('op', 'pm')}
+      <label style="margin-top:14px">付款日期<input type="date" id="pd" value="${today()}" max="${today()}"></label>
+      <span class="lbl">付款截图 / 收据（可不加）</span>
       <div class="phs" id="pph"></div>
     </div>
     <button class="btn ok block" id="pok" style="margin-top:16px">${ic('check', 20, 2.2)} 已付</button>`, s => {
+    bindSeg(s, 'pm', m => { method = m; });
     const box = s.querySelector('#pph');
     const draw = () => photoGrid(box, { list: photos.map(p => ({ img: p.img, id: p.id })), max: 2, onAdd: imgs => { imgs.forEach(img => photos.push({ id: db.newPhotoId(S.shopId), img })); draw(); }, onDel: id => { photos = photos.filter(p => p.id !== id); draw(); } });
     draw();
@@ -404,8 +420,8 @@ function payFlow(inv) {
       closeSheet();
       photos.forEach(p => db.cachePhoto(p.id, p.img));
       const row = document.querySelector(`[data-inv="${inv.id}"]`); if (row) row.classList.add('leaving');
-      db.markPaid(S.shopId, inv.id, pd, S.me.name, photos, LG('pay', `已付 ${invDesc(name, inv.amount, inv.no)}，付款日期 ${cnDate(pd, true)}${photos.length ? '，附付款截图' : ''}`, inv.id)).catch(fail);
-      toast(`已付 ${money(inv.amount)} lei · ${name}`, { undo: () => db.unmarkPaid(S.shopId, Object.assign({}, inv, { payPh: photos.map(p => p.id) }), LG('unpay', `撤销已付 ${invDesc(name, inv.amount, inv.no)}（点错了马上撤销）`, inv.id)).then(() => toast('已撤销')).catch(fail) });
+      db.markPaid(S.shopId, inv.id, pd, S.me.name, photos, LG('pay', `已付（${METHOD[method]}）${invDesc(name, inv.amount, inv.no)}，付款日期 ${cnDate(pd, true)}${photos.length ? '，附截图' : ''}`, inv.id), method).catch(fail);
+      toast(`已付（${METHOD[method]}）${money(inv.amount)} lei · ${name}`, { undo: () => db.unmarkPaid(S.shopId, Object.assign({}, inv, { payPh: photos.map(p => p.id) }), LG('unpay', `撤销已付 ${invDesc(name, inv.amount, inv.no)}`, inv.id)).then(() => toast('已撤销')).catch(fail) });
     };
   });
 }
@@ -464,7 +480,7 @@ function formRender(inv, presetSup, pendingSup) {
   };
   // 供应商名单每次都取最新的（刚保存的新供应商也要算进去）
   const supsNow = () => Object.values(S.sups).sort((a, b) => (b.used - a.used) || a.name.localeCompare(b.name));
-  view().innerHTML = topBar(isEdit ? '改发票' : '记发票', { backTo: isEdit ? '' : null, micro: isEdit ? '' : '收到发票先记下，打完 OP 再点已付' }) + `
+  view().innerHTML = topBar(isEdit ? '改发票' : '记发票', { backTo: isEdit ? '' : null, micro: isEdit ? '' : '收到发票先记下，付完再点已付；当场付的可直接选已付' }) + `
   <form class="card form enter" id="f" autocomplete="off" novalidate>
     <label>供应商<input id="sup" placeholder="输入或选择供应商" maxlength="60" value="${h(st.supText)}"></label>
     <div class="chips" id="supChips"></div>
@@ -477,7 +493,14 @@ function formRender(inv, presetSup, pendingSup) {
       <label>开票日期<input type="date" id="date" value="${inv ? inv.date : today()}" max="${today()}"></label>
       <label>发票号<input id="no" placeholder="可不填" maxlength="40" value="${inv ? h(inv.no) : ''}" autocapitalize="characters"></label>
     </div>
-    ${inv && inv.paid ? `<label>付款日期<input type="date" id="paidDate" value="${inv.paidDate || today()}" max="${today()}"></label>` : ''}
+    <span class="lbl">付款</span>
+    <div class="seg" id="pstat">
+      <button type="button" data-p="no" class="${!inv || !inv.paid ? 'on' : ''}">还没付</button>
+      <button type="button" data-p="op" class="${inv && inv.paid && inv.method === 'op' ? 'on' : ''}">已付 OP</button>
+      <button type="button" data-p="cash" class="${inv && inv.paid && inv.method === 'cash' ? 'on' : ''}">已付现金</button>
+    </div>
+    <label id="pdWrap" style="margin-top:12px" ${inv && inv.paid ? '' : 'hidden'}>付款日期<input type="date" id="paidDate" value="${inv && inv.paidDate || today()}" max="${today()}"></label>
+    <div style="height:14px"></div>
     <span class="lbl">发票照片（拍照或选 PDF）</span>
     <div class="phs" id="phs"></div>
     <label style="margin-top:14px">备注<textarea id="note" maxlength="200" placeholder="可不填">${inv ? h(inv.note) : ''}</textarea></label>
@@ -540,6 +563,13 @@ function formRender(inv, presetSup, pendingSup) {
   };
   amtIn.oninput = () => { amtIn.classList.remove('bad'); showAmt(); }; showAmt();
 
+  // 付款状态：还没付 / 已付 OP / 已付现金
+  let pstat = inv && inv.paid ? inv.method : 'no';
+  f.querySelectorAll('#pstat button').forEach(b => b.onclick = () => {
+    pstat = b.dataset.p;
+    f.querySelectorAll('#pstat button').forEach(x => x.classList.toggle('on', x === b));
+    f.querySelector('#pdWrap').hidden = pstat === 'no';
+  });
   const phBox = f.querySelector('#phs');
   const drawPh = () => photoGrid(phBox, {
     list: st.photos, max: 4,
@@ -573,23 +603,25 @@ function formRender(inv, presetSup, pendingSup) {
       if (dup && !(await confirmSheet('发票号重复了', `${h(name)} 的 No. ${h(no)} 已经记过（${money(dup.amount)} lei，${dup.paid ? '已付' : '未付'}）。还要再记一次吗？`, '仍然保存'))) return;
     }
 
-    let paid = false, paidDate = null, paidBy = '';
-    if (inv && inv.paid) {
-      paid = true; paidDate = (f.querySelector('#paidDate') || {}).value || inv.paidDate || today(); paidBy = inv.paidBy || S.me.name;
+    let paid = pstat !== 'no', paidDate = null, paidBy = '', method = pstat === 'cash' ? 'cash' : 'op';
+    if (paid) {
+      paidDate = f.querySelector('#paidDate').value || today();
+      paidBy = inv && inv.paid ? (inv.paidBy || S.me.name) : S.me.name;
       if (paidDate < date) return toast('付款日期不能早于开票日期');
     }
     const data = {
       supplierId, supplierName: name, no, amount, date, note, paid,
       by: inv ? (inv.by || S.me.name) : S.me.name,
-      invPh: st.photos.map(p => p.id), payPh: inv ? inv.payPh : []
+      invPh: st.photos.map(p => p.id), payPh: inv && paid ? inv.payPh : []
     };
-    if (paid) { data.paidDate = paidDate; data.paidBy = paidBy; }
+    if (paid) { data.paidDate = paidDate; data.paidBy = paidBy; data.payMethod = method; }
+    if (inv && inv.paid && !paid) st.removed.push(...inv.payPh); // 改回没付：付款截图一起删
     if (!inv) data.createdAt = db.serverNow();
     const id = inv ? inv.id : db.newInvoiceId(S.shopId);
     st.added.forEach(p => db.cachePhoto(p.id, p.img));
     let log;
     if (!inv) {
-      log = LG('add', `记发票 ${invDesc(name, amount, no)}，开票 ${cnDate(date, true)}${newSupplier ? `；新供应商，超 ${days} 天标红` : ''}${supDays ? `；标红天数 ${(m && m.days) || 30} → ${days} 天` : ''}`, id);
+      log = LG('add', `记发票 ${invDesc(name, amount, no)}，开票 ${cnDate(date, true)}${paid ? `，已付（${METHOD[method]}）${cnDate(paidDate, true)}` : ''}${newSupplier ? `；新供应商，超 ${days} 天标红` : ''}${supDays ? `；标红天数 ${(m && m.days) || 30} → ${days} 天` : ''}`, id);
     } else {
       const ch = [];
       const oldSup = supName(inv.supplierId, inv.supplierName);
@@ -598,7 +630,12 @@ function formRender(inv, presetSup, pendingSup) {
       if (inv.date !== date) ch.push(`开票日期 ${cnDate(inv.date, true)} → ${cnDate(date, true)}`);
       if (inv.no !== no) ch.push(`发票号 ${inv.no || '空'} → ${no || '空'}`);
       if (inv.note !== note) ch.push(`备注 ${inv.note || '空'} → ${note || '空'}`);
-      if (paid && inv.paidDate !== paidDate) ch.push(`付款日期 ${cnDate(inv.paidDate, true)} → ${cnDate(paidDate, true)}`);
+      if (inv.paid && !paid) ch.push('改回没付');
+      else if (!inv.paid && paid) ch.push(`改成已付（${METHOD[method]}）${cnDate(paidDate, true)}`);
+      else if (paid) {
+        if (inv.method !== method) ch.push(`付款方式 ${METHOD[inv.method]} → ${METHOD[method]}`);
+        if (inv.paidDate !== paidDate) ch.push(`付款日期 ${cnDate(inv.paidDate, true)} → ${cnDate(paidDate, true)}`);
+      }
       if (st.added.length) ch.push(`加了 ${st.added.length} 张照片`);
       if (st.removed.length) ch.push(`删了 ${st.removed.length} 张照片`);
       if (supDays) ch.push(`${name} 标红天数 ${(m && m.days) || 30} → ${days} 天`);
@@ -608,7 +645,7 @@ function formRender(inv, presetSup, pendingSup) {
     // 离线也能马上看到：不等服务器
     if (more) { toast(`已记 ${money(amount)} lei · ${name}`); formRender(null, supplierId, newSupplier ? { id: supplierId, name, days, used: Date.now() } : null); setTimeout(() => { const a = view().querySelector('#amt'); a && a.focus(); }, 50); }
     else if (inv) { toast('已保存'); back('#/'); }
-    else { toast(`已记 ${money(amount)} lei · ${name}`); location.hash = '#/'; }
+    else { toast(`已记 ${money(amount)} lei · ${name}${paid ? '（已付' + METHOD[method] + '）' : ''}`); location.hash = paid ? '#/paid' : '#/'; }
   };
   f.querySelector('#save').onclick = () => save(false);
   const sm = f.querySelector('#saveMore'); if (sm) sm.onclick = () => save(true);
@@ -624,7 +661,7 @@ function detail(id) {
     const name = supName(inv.supplierId, inv.supplierName);
     const d = daysSince(inv.date, inv.paid ? inv.paidDate : null), lv = inv.paid ? '' : level(inv);
     const pill = inv.paid
-      ? `<span class="pill safe">${ic('check', 15, 2.4)} 已付 · ${cnDate(inv.paidDate)}</span>`
+      ? `<span class="pill safe">${ic('check', 15, 2.4)} 已付${METHOD[inv.method]} · ${cnDate(inv.paidDate)}</span>`
       : `<span class="pill ${lv || 'wait'}">未付 · 已 ${d} 天${lv === 'expired' ? '（超期）' : ''}</span>`;
     view().innerHTML = topBar(h(name), { backTo: '', right: `<button class="icon-btn" id="more">${ic('more', 22, 2)}</button>` }) + `
       <section class="card big-amt enter">
@@ -638,7 +675,7 @@ function detail(id) {
       <section class="card kv enter" style="--i:2">
         <div><span>供应商</span><a href="#/sup/${inv.supplierId}"><b>${h(name)}</b></a></div>
         <div><span>开票日期</span><b>${cnDate(inv.date, true)}</b></div>
-        ${inv.paid ? `<div><span>付款日期</span><b>${cnDate(inv.paidDate, true)}</b></div><div><span>开票到付款</span><b>${d} 天</b></div>` : `<div><span>标红天数</span><b>${supDays(inv.supplierId)} 天</b></div>`}
+        ${inv.paid ? `<div><span>付款方式</span><b>${methodTag(inv.method)}</b></div><div><span>付款日期</span><b>${cnDate(inv.paidDate, true)}</b></div><div><span>开票到付款</span><b>${d} 天</b></div>` : `<div><span>标红天数</span><b>${supDays(inv.supplierId)} 天</b></div>`}
         <div><span>记录人</span><b>${h(inv.by || '—')}</b></div>
         ${inv.paid ? `<div><span>点已付的人</span><b>${h(inv.paidBy || '—')}</b></div>` : ''}
         ${inv.note ? `<div><span>备注</span><b>${h(inv.note)}</b></div>` : ''}
@@ -671,7 +708,7 @@ function detail(id) {
 // ---------- 已付 ----------
 function paidView() {
   let list = [], extra = [], q = '', loading = true;
-  view().innerHTML = topBar('已付', { micro: '打过 OP 的发票，按付款日期' }) + `
+  view().innerHTML = topBar('已付', { micro: '已付的发票（OP 和现金），按付款日期' }) + `
     <div class="search">${ic('search', 18, 2)}<input id="q" type="search" placeholder="搜供应商、发票号、金额" autocomplete="off"></div>
     <div id="pl"></div>`;
   const qi = view().querySelector('#q'), box = view().querySelector('#pl');
@@ -694,8 +731,18 @@ function paidView() {
     rows.sort((a, b) => (b.paidDate || '').localeCompare(a.paidDate || '') || b.date.localeCompare(a.date));
     const months = {};
     rows.forEach(i => { (months[monthKey(i.paidDate)] = months[monthKey(i.paidDate)] || []).push(i); });
-    box.innerHTML = Object.keys(months).sort().reverse().map(mk => `
+    const thisM = today().slice(0, 7), cm = splitSum(months[thisM] || []);
+    box.innerHTML = (!k ? `<section class="card hero enter">
+        <span class="micro">本月已付</span>
+        <div class="total">${bigMoney(cm.all)}<em>lei</em></div>
+        <div class="kpis">
+          <div class="kpi sm"><span class="num">${money(cm.op)}</span><small>OP 转账</small></div>
+          <div class="kpi sm"><span class="num">${money(cm.cash)}</span><small>现金</small></div>
+          <div class="kpi"><span class="num">${(months[thisM] || []).length}</span><small>笔</small></div>
+        </div></section>` : '')
+      + Object.keys(months).sort().reverse().map(mk => `
       ${secHead('ok', cnMonth(mk) + ' 已付', `${months[mk].length} 笔 · ${money(sumOf(months[mk]))} lei`)}
+      ${splitLine(splitSum(months[mk]))}
       <section class="card list">${months[mk].map(i => paidRow(i, true)).join('')}</section>`).join('')
       + (!k && list.length >= S.paidN ? '<button class="btn block" id="moreP" style="margin-top:4px">加载更早的</button>' : '')
       + (k ? '<p class="hint">只在最近加载的记录里搜；查更早的发票号可清空后点「加载更早的」或按发票号查</p>' : '');
@@ -751,6 +798,7 @@ function supDetail(sid) {
       <a class="btn primary block enter" href="#/new?s=${sid}" style="margin-bottom:12px;--i:1">${ic('add', 18, 2.2)} 给这家记发票</a>
       ${un.length ? secHead('un', '未付', `${un.length} 笔 · ${money(sumOf(un))} lei`) + `<section class="card list">${un.map(i => invRow(i)).join('')}</section>` : ''}
       ${secHead('ok', '已付', all === null ? '加载中…' : `${paid.length} 笔 · 今年 ${money(paidYear)} lei`)}
+      ${paid.length ? splitLine(splitSum(paid.filter(i => (i.paidDate || '').startsWith(yr)))) : ''}
       ${paid.length ? `<section class="card list">${paid.map(i => paidRow(i, false)).join('')}</section>` : (all === null ? '' : '<div class="card empty-state"><p>还没有已付记录</p></div>')}`;
     bindBack('#/sup');
     bindInvRows(view());
@@ -824,7 +872,11 @@ function fmtAt(ms) {
   const ds = d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate());
   return (ds === today() ? '今天' : cnDate(ds)) + ' ' + t;
 }
-let lastLogs = null;
+let lastLogs = null, logOpen = false;
+function foldLogs() {
+  const b = $('logs'), f = $('logFold'); if (!b || !f) return;
+  b.hidden = !logOpen; f.classList.toggle('open', logOpen);
+}
 function watchLogBox() {
   stopView();
   viewUnsub = db.watchLogs(S.shopId, logN, list => { lastLogs = list; drawLogs(); },
@@ -832,6 +884,7 @@ function watchLogBox() {
 }
 function drawLogs() {
     const list = lastLogs, box = $('logs'); if (!box || !list) return;
+    const cnt = $('logCount'); if (cnt) cnt.textContent = list.length ? `最近 ${list.length >= logN ? logN + '+' : list.length} 条 · 点开看` : '还没有';
     if (!list.length) { box.innerHTML = '<div class="empty">还没有记录。之后每次记发票、改发票、点已付、删除、改供应商和成员，都会记在这里。</div>'; return; }
     box.innerHTML = list.map(x => `<div class="lg">
         <span class="lgface">${face(x.uid, x.by)}<i class="badge ${LOG_CLS[x.action] || ''}">${ic(LOG_IC[x.action] || 'edit', 11, 2.6)}</i></span>
@@ -881,7 +934,7 @@ async function settings() {
       ${S.shopIds.length > 1 ? `<div class="lrow static"><span class="mav ghost">${ic('tabSup', 16, 2)}</span><span class="grow"><b>切换店铺</b></span><select class="inp" id="shopSel" style="width:auto;margin:0"></select></div>` : ''}
     </section>
     <section class="card enter" style="--i:1" id="members"></section>
-    <section class="card enter" style="--i:1"><span class="micro">修改记录</span><div id="logs" class="logs"><div class="empty">加载中…</div></div></section>
+    <section class="card enter" style="--i:1"><button class="fold" id="logFold"><span class="micro">修改记录</span><small id="logCount"></small><span class="chev">${ic('chev', 16, 2)}</span></button><div id="logs" class="logs" hidden><div class="empty">加载中…</div></div></section>
     <section class="card enter" style="--i:1">
       <span class="micro">外观</span>
       <div class="seg" id="theme" style="margin-top:8px"><button data-t="">跟随系统</button><button data-t="light">浅色</button><button data-t="dark">深色</button></div>
@@ -896,6 +949,8 @@ async function settings() {
   drawProfile();
   drawMembers();
   watchLogBox();
+  $('logFold').onclick = () => { logOpen = !logOpen; foldLogs(); };
+  foldLogs();
   // 上传我的头像（所有店都换）
   $('in-avatar').onchange = async e => {
     const f = e.target.files && e.target.files[0]; e.target.value = ''; if (!f) return;
