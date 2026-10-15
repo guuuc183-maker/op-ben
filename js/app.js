@@ -3,7 +3,7 @@ import * as db from './db.js';
 import { toImages, makeAvatar } from './photo.js';
 import { $, h, today, daysSince, cnDate, shortDate, monthKey, cnMonth, topDate, money, bigMoney, parseAmount, normName, keyName } from './util.js';
 
-const VERSION = '1.2';
+const VERSION = '1.2.1';
 
 // ---------- 图标（与到期提醒同风格：24 网格细线） ----------
 const IC = {
@@ -76,6 +76,7 @@ function errText(e) {
   if (c === 'auth/invalid-email') return '邮箱格式不对';
   if (c === 'auth/unauthorized-domain') return '网址还没加到 Firebase 授权域名';
   if (c === 'auth/popup-closed-by-user' || c === 'auth/cancelled-popup-request') return '';
+  if (c === 'op/google-in-pwa') return '主屏幕版里 Google 登录不稳定：请用邮箱登录（第一次点「忘记密码」给你的 Gmail 设个密码）';
   if (c === 'auth/network-request-failed') return '网络不通，稍后再试';
   return (e && e.message) || '出错了，再试一次';
 }

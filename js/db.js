@@ -36,9 +36,12 @@ export const onUser = cb => onAuthStateChanged(auth, cb);
 export async function loginGoogle() {
   const p = new GoogleAuthProvider();
   p.setCustomParameters({ prompt: 'select_account' });
+  // 主屏幕 App（iPhone）里跳转式登录会报 missing initial state，所以不跳转，提示改用邮箱
+  const standalone = navigator.standalone || matchMedia('(display-mode: standalone)').matches;
   try { await signInWithPopup(auth, p); }
   catch (e) {
-    if (e.code === 'auth/popup-blocked' || e.code === 'auth/operation-not-supported-in-this-environment') await signInWithRedirect(auth, p);
+    if (!standalone && (e.code === 'auth/popup-blocked' || e.code === 'auth/operation-not-supported-in-this-environment')) await signInWithRedirect(auth, p);
+    else if (standalone && e.code !== 'auth/popup-closed-by-user' && e.code !== 'auth/cancelled-popup-request') throw Object.assign(new Error('google-in-pwa'), { code: 'op/google-in-pwa' });
     else throw e;
   }
 }
