@@ -380,7 +380,7 @@ function grpSplit(list) {
 function evRow(e, showSup) {
   const i = e.inv;
   const what = e.method === 'cash'
-    ? (e.cnt > 1 || !e.final ? `现金第 ${e.n} 笔 · ${e.left ? '还欠 ' + money(e.left) : '付清'}` : '现金付清')
+    ? (e.cnt > 1 || !e.final ? `现金第 ${e.n} 笔 · ${e.left ? '剩 ' + money(e.left) : '付清'}` : '现金付清')
     : `${daysSince(i.date, e.date)} 天后付`;
   const sub = `开票 ${shortDate(i.date)}${i.no ? ' · No. ' + h(i.no) : ''} · ${what}`;
   return `<div class="inv paid ${e.final ? '' : 'part'}" data-inv="${i.id}">
@@ -415,8 +415,8 @@ function home() {
     <span class="micro">未付总额（OP + 现金）</span>
     <div class="total">${bigMoney(total)}<em>lei</em></div>
     <div class="kpis two">
-      <div class="kpi"><span class="num op">${money(sp.op)}</span><small>${methodTag('op')} 欠 OP</small></div>
-      <div class="kpi"><span class="num cash">${money(sp.cash)}</span><small>${methodTag('cash')} 欠现金</small></div>
+      <div class="kpi"><span class="num op">${money(sp.op)}</span><small>${methodTag('op')} 未付</small></div>
+      <div class="kpi"><span class="num cash">${money(sp.cash)}</span><small>${methodTag('cash')} 未付</small></div>
     </div>
     <p class="hero-foot">${S.unpaid.length} 笔 · ${gs.length} 家供应商${over ? ` · <span class="expired">${over} 笔超期</span>` : ''}</p></section>`;
   gs.forEach((g, n) => {
@@ -468,7 +468,7 @@ function cashFlow(inv) {
   let photos = [];
   const name = supName(inv.supplierId, inv.supplierName), owe = inv.owe;
   sheet(`<h3>付现金</h3>
-    <p class="sub">${h(name)}${inv.no ? ' · No. ' + h(inv.no) : ''}<br>发票 ${money(inv.amount)} lei${inv.paidSum ? ` · 已付 ${money(inv.paidSum)}` : ''} · <b>还欠 ${money(owe)} lei</b></p>
+    <p class="sub">${h(name)}${inv.no ? ' · No. ' + h(inv.no) : ''}<br>发票 ${money(inv.amount)} lei${inv.paidSum ? ` · 已付 ${money(inv.paidSum)}` : ''} · <b>未付 ${money(owe)} lei</b></p>
     <div class="form">
       <label>这次付了多少（lei）<input id="ca" class="amt-in" inputmode="decimal" value="${money(owe)}"></label>
       <p class="hint-l" id="caHint" style="margin-top:-8px;margin-bottom:12px"></p>
@@ -481,9 +481,9 @@ function cashFlow(inv) {
     const show = () => {
       const v = parseAmount(ca.value);
       if (isNaN(v) || v <= 0) { hint.className = 'hint-l warn'; hint.textContent = '金额格式不对'; return; }
-      if (v > owe + 0.005) { hint.className = 'hint-l warn'; hint.textContent = `不能超过还欠的 ${money(owe)} lei`; return; }
+      if (v > owe + 0.005) { hint.className = 'hint-l warn'; hint.textContent = `不能超过未付的 ${money(owe)} lei`; return; }
       hint.className = 'hint-l';
-      hint.innerHTML = v >= owe - 0.005 ? '= 全部还清，这张变成已付' : `付 <b>${money(v)}</b>，还欠 <b>${money(owe - v)}</b> lei`;
+      hint.innerHTML = v >= owe - 0.005 ? '= 全部还清，这张变成已付' : `付 <b>${money(v)}</b>，剩 <b>${money(owe - v)}</b> lei 未付`;
     };
     ca.oninput = show; show();
     ca.onfocus = () => ca.select();
@@ -493,7 +493,7 @@ function cashFlow(inv) {
     s.querySelector('#cok').onclick = () => {
       const v = parseAmount(ca.value), cd = s.querySelector('#cd').value || today();
       if (isNaN(v) || v <= 0) return toast('请填付了多少');
-      if (v > owe + 0.005) return toast(`不能超过还欠的 ${money(owe)} lei`);
+      if (v > owe + 0.005) return toast(`不能超过未付的 ${money(owe)} lei`);
       if (cd < inv.date) return toast('付款日期不能早于开票日期');
       closeSheet();
       const amt = Math.min(v, owe), left = Math.round((owe - amt) * 100) / 100;
@@ -502,8 +502,8 @@ function cashFlow(inv) {
       if (!left) { const row = document.querySelector(`[data-inv="${inv.id}"]`); if (row) row.classList.add('leaving'); }
       const newPh = inv.payPh.concat(photos.map(p => p.id)).slice(-4);
       db.setCashPays(S.shopId, inv, pays, { photos, by: S.me.name,
-        lg: LG('pay', `付现金 ${money(amt)} lei · ${name}${inv.no ? '（No. ' + inv.no + '）' : ''}，${cnDate(cd, true)}；${left ? `还欠 ${money(left)}` : '已付清'}`, inv.id) }).catch(fail);
-      toast(left ? `付了 ${money(amt)}，还欠 ${money(left)} lei · ${name}` : `已付清 ${money(inv.amount)} lei · ${name}`, { undo: () =>
+        lg: LG('pay', `付现金 ${money(amt)} lei · ${name}${inv.no ? '（No. ' + inv.no + '）' : ''}，${cnDate(cd, true)}；${left ? `剩 ${money(left)} 未付` : '已付清'}`, inv.id) }).catch(fail);
+      toast(left ? `付了 ${money(amt)}，剩 ${money(left)} lei 未付 · ${name}` : `已付清 ${money(inv.amount)} lei · ${name}`, { undo: () =>
         db.setCashPays(S.shopId, Object.assign({}, inv, { payPh: newPh }), inv.cashPays, { keepPh: inv.payPh,
           lg: LG('unpay', `撤销付现金 ${money(amt)} lei · ${name}`, inv.id) }).then(() => toast('已撤销')).catch(fail) });
     };
@@ -564,7 +564,7 @@ function formRender(inv, presetSup, pendingSup) {
   };
   // 供应商名单每次都取最新的（刚保存的新供应商也要算进去）
   const supsNow = () => Object.values(S.sups).sort((a, b) => (b.used - a.used) || a.name.localeCompare(b.name));
-  view().innerHTML = topBar(isEdit ? '改发票' : '记发票', { backTo: isEdit ? '' : null, micro: isEdit ? '' : '收到发票先记下欠多少、欠 OP 还是现金，还完再点已付' }) + `
+  view().innerHTML = topBar(isEdit ? '改发票' : '记发票', { backTo: isEdit ? '' : null, micro: isEdit ? '' : '收到发票先记下，选 OP 还是现金，付完再点已付' }) + `
   <form class="card form enter" id="f" autocomplete="off" novalidate>
     <label>供应商<input id="sup" placeholder="输入或选择供应商" maxlength="60" value="${h(st.supText)}"></label>
     <div class="chips" id="supChips"></div>
@@ -577,7 +577,6 @@ function formRender(inv, presetSup, pendingSup) {
       <label>开票日期<input type="date" id="date" value="${inv ? inv.date : today()}" max="${today()}"></label>
       <label>发票号<input id="no" placeholder="可不填" maxlength="40" value="${inv ? h(inv.no) : ''}" autocapitalize="characters"></label>
     </div>
-    <span class="lbl">欠的是</span>
     ${methodSeg(inv ? inv.method : 'op', 'kind')}
     ${inv && inv.paid ? `<label style="margin-top:12px">付款日期<input type="date" id="paidDate" value="${inv.paidDate || today()}" max="${today()}"></label>` : ''}
     <div style="height:14px"></div>
@@ -705,7 +704,7 @@ function formRender(inv, presetSup, pendingSup) {
     st.added.forEach(p => db.cachePhoto(p.id, p.img));
     let log;
     if (!inv) {
-      log = LG('add', `记发票 ${invDesc(name, amount, no)}，开票 ${cnDate(date, true)}，欠${METHOD[method]}${newSupplier ? `；新供应商，超 ${days} 天标红` : ''}${supDays ? `；标红天数 ${(m && m.days) || 30} → ${days} 天` : ''}`, id);
+      log = LG('add', `记发票 ${invDesc(name, amount, no)}，开票 ${cnDate(date, true)}，${METHOD[method]}${newSupplier ? `；新供应商，超 ${days} 天标红` : ''}${supDays ? `；标红天数 ${(m && m.days) || 30} → ${days} 天` : ''}`, id);
     } else {
       const ch = [];
       const oldSup = supName(inv.supplierId, inv.supplierName);
@@ -714,7 +713,7 @@ function formRender(inv, presetSup, pendingSup) {
       if (inv.date !== date) ch.push(`开票日期 ${cnDate(inv.date, true)} → ${cnDate(date, true)}`);
       if (inv.no !== no) ch.push(`发票号 ${inv.no || '空'} → ${no || '空'}`);
       if (inv.note !== note) ch.push(`备注 ${inv.note || '空'} → ${note || '空'}`);
-      if (inv.method !== method) ch.push(`欠的 ${METHOD[inv.method]} → ${METHOD[method]}`);
+      if (inv.method !== method) ch.push(`${METHOD[inv.method]} → ${METHOD[method]}`);
       if (paid && inv.paidDate !== paidDate) ch.push(`付款日期 ${cnDate(inv.paidDate, true)} → ${cnDate(paidDate, true)}`);
       if (st.added.length) ch.push(`加了 ${st.added.length} 张照片`);
       if (st.removed.length) ch.push(`删了 ${st.removed.length} 张照片`);
@@ -723,9 +722,9 @@ function formRender(inv, presetSup, pendingSup) {
     }
     db.saveInvoice(S.shopId, id, data, { newSupplier, supDays, photos: st.added, removePhotos: st.removed, log }).catch(fail);
     // 离线也能马上看到：不等服务器
-    if (more) { toast(`已记 欠${METHOD[method]} ${money(amount)} lei · ${name}`); formRender(null, supplierId, newSupplier ? { id: supplierId, name, days, used: Date.now() } : null); setTimeout(() => { const a = view().querySelector('#amt'); a && a.focus(); }, 50); }
+    if (more) { toast(`已记 ${METHOD[method]} ${money(amount)} lei · ${name}`); formRender(null, supplierId, newSupplier ? { id: supplierId, name, days, used: Date.now() } : null); setTimeout(() => { const a = view().querySelector('#amt'); a && a.focus(); }, 50); }
     else if (inv) { toast('已保存'); back('#/'); }
-    else { toast(`已记 欠${METHOD[method]} ${money(amount)} lei · ${name}`); location.hash = '#/'; }
+    else { toast(`已记 ${METHOD[method]} ${money(amount)} lei · ${name}`); location.hash = '#/'; }
   };
   f.querySelector('#save').onclick = () => save(false);
   const sm = f.querySelector('#saveMore'); if (sm) sm.onclick = () => save(true);
@@ -743,7 +742,7 @@ function detail(id) {
     const pill = inv.paid
       ? `<span class="pill safe">${ic('check', 15, 2.4)} 已付${METHOD[inv.method]} · ${cnDate(inv.paidDate)}</span>`
       : inv.paidSum
-        ? `<span class="pill ${lv || 'soon'}">还欠 ${money(inv.owe)} · 已付 ${money(inv.paidSum)}</span>`
+        ? `<span class="pill ${lv || 'soon'}">未付 ${money(inv.owe)} · 已付 ${money(inv.paidSum)}</span>`
         : `<span class="pill ${lv || 'wait'}">未付 · 已 ${d} 天${lv === 'expired' ? '（超期）' : ''}</span>`;
     const isCash = inv.method === 'cash', pays = inv.cashPays;
     view().innerHTML = topBar(h(name), { backTo: '', right: `<button class="icon-btn" id="more">${ic('more', 22, 2)}</button>` }) + `
@@ -776,7 +775,7 @@ function detail(id) {
     const ul = view().querySelector('#undoLast');
     if (ul) ul.onclick = async () => {
       const last = pays[pays.length - 1];
-      if (!(await confirmSheet('撤销最后一笔现金？', `${cnDate(last.date, true)} 付的 ${money(last.amt)} lei 会撤销，这张发票${inv.paid ? '回到未付' : '还欠的会加回去'}。`, '撤销'))) return;
+      if (!(await confirmSheet('撤销最后一笔现金？', `${cnDate(last.date, true)} 付的 ${money(last.amt)} lei 会撤销，这张发票${inv.paid ? '回到未付' : '未付的会加回去'}。`, '撤销'))) return;
       db.setCashPays(S.shopId, inv, pays.slice(0, -1), { lg: LG('unpay', `撤销付现金 ${money(last.amt)} lei · ${name}${inv.no ? '（No. ' + inv.no + '）' : ''}（原 ${cnDate(last.date, true)} 付的）`, inv.id) })
         .then(() => toast('已撤销')).catch(fail);
     };
@@ -883,7 +882,7 @@ function supDetail(sid) {
     const paidYear = splitSum(evYr, e => e.amount).all;
     view().innerHTML = topBar(h(s.name), { backTo: '', right: `<button class="icon-btn" id="more">${ic('more', 22, 2)}</button>` }) + `
       <section class="card hero enter">
-        <span class="micro">还欠这家（OP + 现金）</span>
+        <span class="micro">这家未付（OP + 现金）</span>
         <div class="total">${bigMoney(oweOf(un))}<em>lei</em></div>
         ${un.length ? grpSplit(un).replace('gsplit', 'gsplit hero-sp') : ''}
         <div class="kpis">
