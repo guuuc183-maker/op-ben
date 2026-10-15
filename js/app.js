@@ -3,7 +3,7 @@ import * as db from './db.js';
 import { toImages, makeAvatar } from './photo.js';
 import { $, h, today, daysSince, cnDate, shortDate, monthKey, cnMonth, topDate, money, bigMoney, parseAmount, normName, keyName } from './util.js';
 
-const VERSION = '1.4';
+const VERSION = '1.5';
 
 // ---------- 图标（与到期提醒同风格：24 网格细线） ----------
 const IC = {
@@ -232,7 +232,7 @@ function groups() {
   });
   return Object.values(g).map(x => {
     x.list.sort((a, b) => a.date < b.date ? -1 : a.date > b.date ? 1 : 0);
-    x.sum = x.list.reduce((s, i) => s + i.amount, 0);
+    x.sum = oweOf(x.list);
     x.over = x.list.filter(i => level(i) === 'expired').length;
     x.oldest = daysSince(x.list[0].date);
     x.lv = x.over ? 'expired' : x.list.some(i => level(i) === 'soon') ? 'soon' : '';
@@ -240,6 +240,24 @@ function groups() {
   }).sort((a, b) => (b.over - a.over) || (b.oldest - a.oldest));
 }
 const sumOf = l => l.reduce((s, i) => s + i.amount, 0);
+const oweOf = l => l.reduce((s, i) => s + (i.owe != null ? i.owe : i.amount), 0); // 还欠多少（现金付了一部分的按剩下的算）
+// 已付的每一笔：OP 整张付清算一笔；现金每次付的算一笔
+function payEvents(invs) {
+  const ev = [];
+  invs.forEach(inv => {
+    if (inv.cashPays && inv.cashPays.length) {
+      let done = 0;
+      inv.cashPays.forEach((p, n) => {
+        done += p.amt;
+        ev.push({ inv, amount: p.amt, date: p.date, by: p.by, method: 'cash', n: n + 1, cnt: inv.cashPays.length,
+          left: Math.max(0, Math.round((inv.amount - done) * 100) / 100), final: inv.paid && n === inv.cashPays.length - 1 });
+      });
+    } else if (inv.paid) {
+      ev.push({ inv, amount: inv.amount, date: inv.paidDate, by: inv.paidBy, method: inv.method, n: 1, cnt: 1, left: 0, final: true });
+    }
+  });
+  return ev.sort((a, b) => (b.date || '').localeCompare(a.date || '') || b.inv.date.localeCompare(a.inv.date));
+}
 
 // ---------- 路由 ----------
 let cur = null;
@@ -323,8 +341,8 @@ function invRow(i, { showSup = false, payBtn = true } = {}) {
   return `<div class="inv" data-inv="${i.id}">
     <div class="meta">${showSup ? `<b class="ell">${h(supName(i.supplierId, i.supplierName))}</b>` : ''}<small>${sub}${i.invPh.length ? `<span class="ph-dot">${ic('photo', 13, 1.8)}</span>` : ''}${i.pending ? '<span class="pend">待同步</span>' : ''}</small>
     ${showSup ? '' : `<em class="days ${lv}">${d} 天</em>`}</div>
-    <div class="amt"><span class="num">${money(i.amount)}</span><small>${methodTag(i.method)}${showSup ? ` <span class="${lv}">${d} 天</span>` : ''}</small></div>
-    ${payBtn ? `<button class="pay-btn" data-pay="${i.id}"><i class="circ"></i>标为已付</button>` : ''}
+    <div class="amt"><span class="num">${money(i.owe != null ? i.owe : i.amount)}</span><small>${i.paidSum ? `<span class="partial">原 ${money(i.amount)} · 已付 ${money(i.paidSum)}</span> ` : ''}${methodTag(i.method)}${showSup ? ` <span class="${lv}">${d} 天</span>` : ''}</small></div>
+    ${payBtn ? `<button class="pay-btn" data-pay="${i.id}"><i class="circ"></i>${i.method === 'cash' ? '付现金' : '标为已付'}</button>` : ''}
   </div>`;
 }
 // 已付发票的行：绿色勾 + 付款日期，金额变灰
@@ -340,8 +358,10 @@ function paidRow(i, showSup) {
 const METHOD = { cash: '现金', op: 'OP' };
 const methodTag = m => `<span class="mtag ${m}">${METHOD[m] || 'OP'}</span>`;
 // 现金 / OP 分开合计
-function splitSum(list) {
-  const c = sumOf(list.filter(i => i.method === 'cash')), o = sumOf(list.filter(i => i.method !== 'cash'));
+// 现金 / OP 分开合计；val 默认按还欠的算（已付事件传 e => e.amount）
+function splitSum(list, val = i => (i.owe != null ? i.owe : i.amount)) {
+  let c = 0, o = 0;
+  list.forEach(i => { if (i.method === 'cash') c += val(i); else o += val(i); });
   return { cash: c, op: o, all: c + o };
 }
 const splitLine = (sp) => `<div class="split"><span>${methodTag('op')} ${money(sp.op)}</span><span>${methodTag('cash')} ${money(sp.cash)}</span></div>`;
@@ -356,6 +376,18 @@ function grpSplit(list) {
   const sp = splitSum(list);
   return `<div class="gsplit">${sp.op ? `<span>${methodTag('op')} ${money(sp.op)}</span>` : ''}${sp.cash ? `<span>${methodTag('cash')} ${money(sp.cash)}</span>` : ''}</div>`;
 }
+// 已付的一笔：OP 整张 / 现金某一次
+function evRow(e, showSup) {
+  const i = e.inv;
+  const what = e.method === 'cash'
+    ? (e.cnt > 1 || !e.final ? `现金第 ${e.n} 笔 · ${e.left ? '还欠 ' + money(e.left) : '付清'}` : '现金付清')
+    : `${daysSince(i.date, e.date)} 天后付`;
+  const sub = `开票 ${shortDate(i.date)}${i.no ? ' · No. ' + h(i.no) : ''} · ${what}`;
+  return `<div class="inv paid ${e.final ? '' : 'part'}" data-inv="${i.id}">
+    <span class="okmark">${ic(e.final ? 'check' : 'undo', 16, 2.6)}</span>
+    <div class="meta">${showSup ? `<b class="ell">${h(supName(i.supplierId, i.supplierName))}</b>` : ''}<small>${sub}</small></div>
+    <div class="amt"><span class="num">${money(e.amount)}</span><small class="safe">${methodTag(e.method)} ✓ ${shortDate(e.date)}</small></div></div>`;
+}
 const secHead = (kind, title, right) => `<div class="month"><b><i class="sdot ${kind}"></i>${title}</b><span>${right}</span></div>`;
 
 function bindInvRows(root) {
@@ -366,11 +398,11 @@ function bindInvRows(root) {
   root.querySelectorAll('[data-pay]').forEach(b => b.onclick = e => {
     e.stopPropagation();
     const inv = S.unpaid.find(x => x.id === b.dataset.pay);
-    if (inv) payFlow(inv);
+    if (inv) (inv.method === 'cash' ? cashFlow : payFlow)(inv);
   });
 }
 function home() {
-  const gs = groups(), total = sumOf(S.unpaid), over = gs.reduce((s, g) => s + g.over, 0), sp = splitSum(S.unpaid);
+  const gs = groups(), total = oweOf(S.unpaid), over = gs.reduce((s, g) => s + g.over, 0), sp = splitSum(S.unpaid);
   let html = topNav() + `<div class="pagehead"><span class="micro">${topDate()}</span><h1>未付</h1></div>`;
   if (!S.unpaid.length) {
     html += `<div class="card empty-state enter">
@@ -427,6 +459,53 @@ function payFlow(inv) {
       const row = document.querySelector(`[data-inv="${inv.id}"]`); if (row) row.classList.add('leaving');
       db.markPaid(S.shopId, inv.id, pd, S.me.name, photos, LG('pay', `已付（${METHOD[method]}）${invDesc(name, inv.amount, inv.no)}，付款日期 ${cnDate(pd, true)}${photos.length ? '，附截图' : ''}`, inv.id), method).catch(fail);
       toast(`已付（${METHOD[method]}）${money(inv.amount)} lei · ${name}`, { undo: () => db.unmarkPaid(S.shopId, Object.assign({}, inv, { payPh: photos.map(p => p.id) }), LG('unpay', `撤销已付 ${invDesc(name, inv.amount, inv.no)}`, inv.id)).then(() => toast('已撤销')).catch(fail) });
+    };
+  });
+}
+
+// ---------- 付现金（可以分几次付） ----------
+function cashFlow(inv) {
+  let photos = [];
+  const name = supName(inv.supplierId, inv.supplierName), owe = inv.owe;
+  sheet(`<h3>付现金</h3>
+    <p class="sub">${h(name)}${inv.no ? ' · No. ' + h(inv.no) : ''}<br>发票 ${money(inv.amount)} lei${inv.paidSum ? ` · 已付 ${money(inv.paidSum)}` : ''} · <b>还欠 ${money(owe)} lei</b></p>
+    <div class="form">
+      <label>这次付了多少（lei）<input id="ca" class="amt-in" inputmode="decimal" value="${money(owe)}"></label>
+      <p class="hint-l" id="caHint" style="margin-top:-8px;margin-bottom:12px"></p>
+      <label>付款日期<input type="date" id="cd" value="${today()}" max="${today()}"></label>
+      <span class="lbl">收据照片（可不加）</span>
+      <div class="phs" id="cph"></div>
+    </div>
+    <button class="btn ok block" id="cok" style="margin-top:16px">${ic('check', 20, 2.2)} 付了</button>`, s => {
+    const ca = s.querySelector('#ca'), hint = s.querySelector('#caHint');
+    const show = () => {
+      const v = parseAmount(ca.value);
+      if (isNaN(v) || v <= 0) { hint.className = 'hint-l warn'; hint.textContent = '金额格式不对'; return; }
+      if (v > owe + 0.005) { hint.className = 'hint-l warn'; hint.textContent = `不能超过还欠的 ${money(owe)} lei`; return; }
+      hint.className = 'hint-l';
+      hint.innerHTML = v >= owe - 0.005 ? '= 全部还清，这张变成已付' : `付 <b>${money(v)}</b>，还欠 <b>${money(owe - v)}</b> lei`;
+    };
+    ca.oninput = show; show();
+    ca.onfocus = () => ca.select();
+    const box = s.querySelector('#cph');
+    const draw = () => photoGrid(box, { list: photos.map(p => ({ img: p.img, id: p.id })), max: 2, onAdd: imgs => { imgs.forEach(img => photos.push({ id: db.newPhotoId(S.shopId), img })); draw(); }, onDel: id => { photos = photos.filter(p => p.id !== id); draw(); } });
+    draw();
+    s.querySelector('#cok').onclick = () => {
+      const v = parseAmount(ca.value), cd = s.querySelector('#cd').value || today();
+      if (isNaN(v) || v <= 0) return toast('请填付了多少');
+      if (v > owe + 0.005) return toast(`不能超过还欠的 ${money(owe)} lei`);
+      if (cd < inv.date) return toast('付款日期不能早于开票日期');
+      closeSheet();
+      const amt = Math.min(v, owe), left = Math.round((owe - amt) * 100) / 100;
+      const pays = inv.cashPays.concat([{ amt, date: cd, by: S.me.name }]);
+      photos.forEach(p => db.cachePhoto(p.id, p.img));
+      if (!left) { const row = document.querySelector(`[data-inv="${inv.id}"]`); if (row) row.classList.add('leaving'); }
+      const newPh = inv.payPh.concat(photos.map(p => p.id)).slice(-4);
+      db.setCashPays(S.shopId, inv, pays, { photos, by: S.me.name,
+        lg: LG('pay', `付现金 ${money(amt)} lei · ${name}${inv.no ? '（No. ' + inv.no + '）' : ''}，${cnDate(cd, true)}；${left ? `还欠 ${money(left)}` : '已付清'}`, inv.id) }).catch(fail);
+      toast(left ? `付了 ${money(amt)}，还欠 ${money(left)} lei · ${name}` : `已付清 ${money(inv.amount)} lei · ${name}`, { undo: () =>
+        db.setCashPays(S.shopId, Object.assign({}, inv, { payPh: newPh }), inv.cashPays, { keepPh: inv.payPh,
+          lg: LG('unpay', `撤销付现金 ${money(amt)} lei · ${name}`, inv.id) }).then(() => toast('已撤销')).catch(fail) });
     };
   });
 }
@@ -610,9 +689,17 @@ function formRender(inv, presetSup, pendingSup) {
     const data = {
       supplierId, supplierName: name, no, amount, date, note, paid,
       by: inv ? (inv.by || S.me.name) : S.me.name,
-      invPh: st.photos.map(p => p.id), payPh: inv ? inv.payPh : [], payMethod: method
+      invPh: st.photos.map(p => p.id), payPh: inv ? inv.payPh : [], payMethod: method,
+      cashPays: inv ? inv.cashPays : [], partial: inv ? inv.partial : false
     };
     if (paid) { data.paidDate = paidDate; data.paidBy = paidBy; }
+    if (inv && inv.cashPays.length) {
+      if (method !== 'cash') return toast('这张已经付过现金，不能改成 OP');
+      if (amount < inv.paidSum - 0.005) return toast(`已经付了 ${money(inv.paidSum)}，金额不能比这个少`);
+      const done = inv.paidSum >= amount - 0.005;
+      if (done && !inv.paid) { data.paid = true; data.paidDate = inv.cashPays[inv.cashPays.length - 1].date; data.paidBy = inv.cashPays[inv.cashPays.length - 1].by; data.partial = false; }
+      if (!done && inv.paid) { data.paid = false; delete data.paidDate; delete data.paidBy; data.partial = true; }
+    }
     if (!inv) data.createdAt = db.serverNow();
     const id = inv ? inv.id : db.newInvoiceId(S.shopId);
     st.added.forEach(p => db.cachePhoto(p.id, p.img));
@@ -655,7 +742,10 @@ function detail(id) {
     const d = daysSince(inv.date, inv.paid ? inv.paidDate : null), lv = inv.paid ? '' : level(inv);
     const pill = inv.paid
       ? `<span class="pill safe">${ic('check', 15, 2.4)} 已付${METHOD[inv.method]} · ${cnDate(inv.paidDate)}</span>`
-      : `<span class="pill ${lv || 'wait'}">未付 · 已 ${d} 天${lv === 'expired' ? '（超期）' : ''}</span>`;
+      : inv.paidSum
+        ? `<span class="pill ${lv || 'soon'}">还欠 ${money(inv.owe)} · 已付 ${money(inv.paidSum)}</span>`
+        : `<span class="pill ${lv || 'wait'}">未付 · 已 ${d} 天${lv === 'expired' ? '（超期）' : ''}</span>`;
+    const isCash = inv.method === 'cash', pays = inv.cashPays;
     view().innerHTML = topBar(h(name), { backTo: '', right: `<button class="icon-btn" id="more">${ic('more', 22, 2)}</button>` }) + `
       <section class="card big-amt enter">
         <div class="who">${inv.no ? 'No. ' + h(inv.no) : '发票'}</div>
@@ -663,7 +753,9 @@ function detail(id) {
         ${pill}
       </section>
       <div class="actions enter" style="--i:1">
-        ${inv.paid ? `<button class="btn" id="unpay">${ic('undo', 18, 2)} 撤销已付</button>` : `<button class="btn ok" id="pay">${ic('check', 20, 2.2)} 标记已付</button>`}
+        ${isCash
+          ? `${!inv.paid ? `<button class="btn ok" id="pay">${ic('check', 20, 2.2)} 付现金</button>` : ''}${pays.length ? `<button class="btn" id="undoLast">${ic('undo', 18, 2)} 撤销最后一笔</button>` : ''}`
+          : inv.paid ? `<button class="btn" id="unpay">${ic('undo', 18, 2)} 撤销已付</button>` : `<button class="btn ok" id="pay">${ic('check', 20, 2.2)} 标记已付</button>`}
       </div>
       <section class="card kv enter" style="--i:2">
         <div><span>供应商</span><a href="#/sup/${inv.supplierId}"><b>${h(name)}</b></a></div>
@@ -673,12 +765,21 @@ function detail(id) {
         ${inv.paid ? `<div><span>点已付的人</span><b>${h(inv.paidBy || '—')}</b></div>` : ''}
         ${inv.note ? `<div><span>备注</span><b>${h(inv.note)}</b></div>` : ''}
       </section>
+      ${pays.length ? `<section class="card enter" style="--i:3"><span class="micro">现金付款记录 · 已付 ${money(inv.paidSum)} / ${money(inv.amount)}</span>
+        <div class="pays">${pays.map((p, n) => `<div class="pay"><span class="pn">${n + 1}</span><div class="grow"><b>${cnDate(p.date, true)}</b><small>${h(p.by || '')}</small></div><span class="num">${money(p.amt)}</span></div>`).join('')}</div></section>` : ''}
       ${inv.invPh.length ? `<section class="card enter" style="--i:3"><span class="micro">发票照片</span><div class="phs" id="ip"></div></section>` : ''}
       ${inv.payPh.length ? `<section class="card enter" style="--i:4"><span class="micro">付款截图</span><div class="phs" id="pp"></div></section>` : ''}`;
     bindBack('#/');
     if (inv.invPh.length) photoGrid(view().querySelector('#ip'), { list: inv.invPh.map(id => ({ id })), readonly: true });
     if (inv.payPh.length) photoGrid(view().querySelector('#pp'), { list: inv.payPh.map(id => ({ id })), readonly: true });
-    const pb = view().querySelector('#pay'); if (pb) pb.onclick = () => payFlow(inv);
+    const pb = view().querySelector('#pay'); if (pb) pb.onclick = () => (isCash ? cashFlow : payFlow)(inv);
+    const ul = view().querySelector('#undoLast');
+    if (ul) ul.onclick = async () => {
+      const last = pays[pays.length - 1];
+      if (!(await confirmSheet('撤销最后一笔现金？', `${cnDate(last.date, true)} 付的 ${money(last.amt)} lei 会撤销，这张发票${inv.paid ? '回到未付' : '还欠的会加回去'}。`, '撤销'))) return;
+      db.setCashPays(S.shopId, inv, pays.slice(0, -1), { lg: LG('unpay', `撤销付现金 ${money(last.amt)} lei · ${name}${inv.no ? '（No. ' + inv.no + '）' : ''}（原 ${cnDate(last.date, true)} 付的）`, inv.id) })
+        .then(() => toast('已撤销')).catch(fail);
+    };
     const ub = view().querySelector('#unpay');
     if (ub) ub.onclick = async () => {
       if (!(await confirmSheet('撤销已付？', '这张发票会回到「未付」' + (inv.payPh.length ? '，付款截图会删除' : '') + '。', '撤销已付'))) return;
@@ -700,14 +801,15 @@ function detail(id) {
 
 // ---------- 已付 ----------
 function paidView() {
-  let list = [], extra = [], q = '', loading = true;
+  let list = [], partial = [], extra = [], q = '', loading = true;
   view().innerHTML = topBar('已付', { micro: '已付的发票（OP 和现金），按付款日期' }) + `
     <div class="search">${ic('search', 18, 2)}<input id="q" type="search" placeholder="搜供应商、发票号、金额" autocomplete="off"></div>
     <div id="pl"></div>`;
   const qi = view().querySelector('#q'), box = view().querySelector('#pl');
   const draw = () => {
     const k = keyName(q);
-    const all = list.concat(extra.filter(x => x.paid && !list.some(y => y.id === x.id)));
+    const seen = new Set(), all = [];
+    list.concat(partial, extra).forEach(x => { if (!seen.has(x.id) && (x.paid || x.cashPays.length)) { seen.add(x.id); all.push(x); } });
     let rows = all;
     if (k) {
       const num = parseAmount(q);
@@ -721,10 +823,9 @@ function paidView() {
       if (dp) dp.onclick = async () => { dp.disabled = true; dp.textContent = '查找中…'; extra = await db.findByNo(S.shopId, q.trim()); if (!extra.length) { dp.textContent = '没有这个发票号'; return; } draw(); };
       return;
     }
-    rows.sort((a, b) => (b.paidDate || '').localeCompare(a.paidDate || '') || b.date.localeCompare(a.date));
-    const months = {};
-    rows.forEach(i => { (months[monthKey(i.paidDate)] = months[monthKey(i.paidDate)] || []).push(i); });
-    const thisM = today().slice(0, 7), cm = splitSum(months[thisM] || []);
+    const evs = payEvents(rows), months = {};
+    evs.forEach(e => { (months[monthKey(e.date)] = months[monthKey(e.date)] || []).push(e); });
+    const ev$ = e => e.amount, thisM = today().slice(0, 7), cm = splitSum(months[thisM] || [], ev$);
     box.innerHTML = (!k ? `<section class="card hero enter">
         <span class="micro">本月已付</span>
         <div class="total">${bigMoney(cm.all)}<em>lei</em></div>
@@ -734,9 +835,9 @@ function paidView() {
           <div class="kpi"><span class="num">${(months[thisM] || []).length}</span><small>笔</small></div>
         </div></section>` : '')
       + Object.keys(months).sort().reverse().map(mk => `
-      ${secHead('ok', cnMonth(mk) + ' 已付', `${months[mk].length} 笔 · ${money(sumOf(months[mk]))} lei`)}
-      ${splitLine(splitSum(months[mk]))}
-      <section class="card list">${months[mk].map(i => paidRow(i, true)).join('')}</section>`).join('')
+      ${secHead('ok', cnMonth(mk) + ' 已付', `${months[mk].length} 笔 · ${money(splitSum(months[mk], ev$).all)} lei`)}
+      ${splitLine(splitSum(months[mk], ev$))}
+      <section class="card list">${months[mk].map(e => evRow(e, true)).join('')}</section>`).join('')
       + (!k && list.length >= S.paidN ? '<button class="btn block" id="moreP" style="margin-top:4px">加载更早的</button>' : '')
       + (k ? '<p class="hint">只在最近加载的记录里搜；查更早的发票号可清空后点「加载更早的」或按发票号查</p>' : '');
     bindInvRows(box);
@@ -745,7 +846,9 @@ function paidView() {
   };
   const sub = () => {
     stopView();
-    viewUnsub = db.watchPaid(S.shopId, S.paidN, l => { list = l; loading = false; draw(); }, e => { loading = false; fail(e); draw(); });
+    const u1 = db.watchPaid(S.shopId, S.paidN, l => { list = l; loading = false; draw(); }, e => { loading = false; fail(e); draw(); });
+    const u2 = db.watchPartial(S.shopId, l => { partial = l; draw(); }, () => {});
+    viewUnsub = () => { u1(); u2(); };
   };
   qi.oninput = () => { q = qi.value; extra = []; draw(); };
   sub(); draw();
@@ -775,13 +878,13 @@ function supDetail(sid) {
   const draw = () => {
     const s = S.sups[sid]; if (!s) { location.hash = '#/sup'; return; }
     const un = S.unpaid.filter(i => i.supplierId === sid).sort((a, b) => a.date.localeCompare(b.date));
-    const paid = (all || []).filter(i => i.paid).sort((a, b) => (b.paidDate || '').localeCompare(a.paidDate || ''));
-    const yr = String(new Date().getFullYear());
-    const paidYear = sumOf(paid.filter(i => (i.paidDate || '').startsWith(yr)));
+    const evs = payEvents(all || []);
+    const yr = String(new Date().getFullYear()), evYr = evs.filter(e => (e.date || '').startsWith(yr));
+    const paidYear = splitSum(evYr, e => e.amount).all;
     view().innerHTML = topBar(h(s.name), { backTo: '', right: `<button class="icon-btn" id="more">${ic('more', 22, 2)}</button>` }) + `
       <section class="card hero enter">
         <span class="micro">还欠这家（OP + 现金）</span>
-        <div class="total">${bigMoney(sumOf(un))}<em>lei</em></div>
+        <div class="total">${bigMoney(oweOf(un))}<em>lei</em></div>
         ${un.length ? grpSplit(un).replace('gsplit', 'gsplit hero-sp') : ''}
         <div class="kpis">
           <div class="kpi"><span class="num">${un.length}</span><small>笔未付</small></div>
@@ -790,10 +893,10 @@ function supDetail(sid) {
         </div>
       </section>
       <a class="btn primary block enter" href="#/new?s=${sid}" style="margin-bottom:12px;--i:1">${ic('add', 18, 2.2)} 给这家记发票</a>
-      ${un.length ? secHead('un', '未付', `${un.length} 笔 · ${money(sumOf(un))} lei`) + `<section class="card list">${un.map(i => invRow(i)).join('')}</section>` : ''}
-      ${secHead('ok', '已付', all === null ? '加载中…' : `${paid.length} 笔 · 今年 ${money(paidYear)} lei`)}
-      ${paid.length ? splitLine(splitSum(paid.filter(i => (i.paidDate || '').startsWith(yr)))) : ''}
-      ${paid.length ? `<section class="card list">${paid.map(i => paidRow(i, false)).join('')}</section>` : (all === null ? '' : '<div class="card empty-state"><p>还没有已付记录</p></div>')}`;
+      ${un.length ? secHead('un', '未付', `${un.length} 笔 · ${money(oweOf(un))} lei`) + `<section class="card list">${un.map(i => invRow(i)).join('')}</section>` : ''}
+      ${secHead('ok', '已付', all === null ? '加载中…' : `${evs.length} 笔 · 今年 ${money(paidYear)} lei`)}
+      ${evYr.length ? splitLine(splitSum(evYr, e => e.amount)) : ''}
+      ${evs.length ? `<section class="card list">${evs.map(e => evRow(e, false)).join('')}</section>` : (all === null ? '' : '<div class="card empty-state"><p>还没有已付记录</p></div>')}`;
     bindBack('#/sup');
     bindInvRows(view());
     view().querySelector('#more').onclick = () => supMenu(s, (all || []).length + un.length);

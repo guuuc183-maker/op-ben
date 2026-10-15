@@ -115,7 +115,9 @@ service cloud.firestore {
         allow read, delete: if canSeeAll(shopId);
         allow create, update: if canSeeAll(shopId)
           && request.resource.data.keys().hasOnly(['supplierId', 'supplierName', 'no', 'amount', 'date', 'note',
-               'paid', 'paidDate', 'paidBy', 'payMethod', 'by', 'invPh', 'payPh', 'createdAt', 'updatedAt'])
+               'paid', 'paidDate', 'paidBy', 'payMethod', 'cashPays', 'partial', 'by', 'invPh', 'payPh', 'createdAt', 'updatedAt'])
+          && (!('cashPays' in request.resource.data) || (request.resource.data.cashPays is list && request.resource.data.cashPays.size() <= 200))
+          && (!('partial' in request.resource.data) || request.resource.data.partial is bool)
           && (!('payMethod' in request.resource.data) || request.resource.data.payMethod in ['cash', 'op'])
           && request.resource.data.supplierId is string && request.resource.data.supplierId.size() <= 40
           && request.resource.data.supplierName is string && request.resource.data.supplierName.size() <= 60

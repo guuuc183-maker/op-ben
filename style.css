@@ -327,3 +327,13 @@ input,textarea,select{-webkit-touch-callout:default;-webkit-user-select:text;use
 .inv .amt small .mtag{margin-right:0}
 .gsplit.tight{padding:3px 0 0;font-size:12px}
 .mtag{white-space:nowrap}.gsplit.hero-sp{padding:0 0 12px}
+
+/* v1.5 现金分次付 */
+.inv .amt small .partial{display:block;font-size:11px;color:var(--text2);font-weight:600;margin-bottom:2px;white-space:nowrap}
+.inv.paid.part .okmark{background:var(--soon-soft);color:var(--soon)}
+.pays{margin-top:6px}
+.pay{display:flex;align-items:center;gap:12px;padding:10px 0}
+.pay+.pay{border-top:1px solid var(--line)}
+.pay .pn{width:26px;height:26px;border-radius:50%;background:var(--soon-soft);color:var(--soon);display:grid;place-items:center;font-size:13px;font-weight:700;flex:none}
+.pay b{display:block;font-weight:600;font-size:15px}.pay small{display:block;font-size:12px;color:var(--text2)}
+.pay .num{font-size:20px}

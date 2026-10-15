@@ -131,10 +131,17 @@ function toInv(d) {
     id: d.id, supplierId: x.supplierId, supplierName: x.supplierName || '', no: x.no || '', amount: x.amount || 0,
     date: x.date, note: x.note || '', paid: !!x.paid, paidDate: x.paidDate || null, paidBy: x.paidBy || '',
     by: x.by || '', invPh: x.invPh || [], payPh: x.payPh || [], method: x.payMethod === 'cash' ? 'cash' : 'op',
+    cashPays: Array.isArray(x.cashPays) ? x.cashPays : [], partial: !!x.partial,
     pending: d.metadata.hasPendingWrites
   };
 }
-const toList = (s, cb) => cb(s.docs.map(toInv), { pending: s.metadata.hasPendingWrites, fromCache: s.metadata.fromCache });
+// 现金分几次付：已付多少、还欠多少
+function withOwe(i) {
+  i.paidSum = Math.round(i.cashPays.reduce((a, p) => a + (p.amt || 0), 0) * 100) / 100;
+  i.owe = i.paid ? 0 : Math.round((i.amount - i.paidSum) * 100) / 100;
+  return i;
+}
+const toList = (s, cb) => cb(s.docs.map(d => withOwe(toInv(d))), { pending: s.metadata.hasPendingWrites, fromCache: s.metadata.fromCache });
 
 // 所有未付（首页）
 export function watchUnpaid(sid, cb, onErr) {
@@ -144,6 +151,26 @@ export function watchUnpaid(sid, cb, onErr) {
 export function watchPaid(sid, n, cb, onErr) {
   return onSnapshot(query(invCol(sid), where('paidDate', '>=', '2000-01-01'), orderBy('paidDate', 'desc'), limit(n)), s => toList(s, cb), onErr);
 }
+// 付了一部分现金、还没付清的（已付页要算这些每次付的钱）
+export function watchPartial(sid, cb, onErr) {
+  return onSnapshot(query(invCol(sid), where('partial', '==', true)), s => toList(s, cb), onErr);
+}
+// 现金付款：pays 是付完这笔后的全部付款记录；付清了就变成已付
+export function setCashPays(sid, inv, pays, { photos = [], keepPh, by, lg } = {}) {
+  const b = writeBatch(db);
+  addLog(b, sid, lg);
+  photos.forEach(p => b.set(doc(phCol(sid), p.id), { img: p.img, at: serverTimestamp() }));
+  const paidSum = Math.round(pays.reduce((a, p) => a + p.amt, 0) * 100) / 100;
+  const done = paidSum >= inv.amount - 0.005;
+  const payPh = (keepPh || inv.payPh || []).concat(photos.map(p => p.id)).slice(-4);
+  const upd = { cashPays: pays, partial: !done && pays.length > 0, payMethod: 'cash', payPh, updatedAt: serverTimestamp() };
+  if (done) Object.assign(upd, { paid: true, paidDate: pays[pays.length - 1].date, paidBy: by || pays[pays.length - 1].by });
+  else Object.assign(upd, { paid: false, paidDate: deleteField(), paidBy: deleteField() });
+  (inv.payPh || []).filter(id => !payPh.includes(id)).forEach(id => b.delete(doc(phCol(sid), id)));
+  b.update(doc(invCol(sid), inv.id), upd);
+  return b.commit();
+}
+
 // 某家供应商的全部发票
 export function watchBySupplier(sid, supId, cb, onErr) {
   return onSnapshot(query(invCol(sid), where('supplierId', '==', supId)), s => toList(s, cb), onErr);
@@ -155,7 +182,7 @@ export function findByNo(sid, no) {
   });
 }
 export function watchInvoice(sid, id, cb, onErr) {
-  return onSnapshot(doc(invCol(sid), id), s => cb(s.exists() ? toInv(s) : null), onErr);
+  return onSnapshot(doc(invCol(sid), id), s => cb(s.exists() ? withOwe(toInv(s)) : null), onErr);
 }
 
 // 保存发票（新建或修改）；supplier 是新供应商时一起建
